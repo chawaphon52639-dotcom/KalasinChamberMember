@@ -18,7 +18,7 @@
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
-  <!-- Firebase Compat SDKs (Prevents CORS/White Screen Errors) -->
+  <!-- Firebase Compat SDKs -->
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
@@ -37,7 +37,6 @@
 <body class="bg-slate-50 text-slate-800 antialiased">
   <div id="root"></div>
 
-  <!-- Main React Application Script -->
   <script type="text/babel">
     const firebaseConfig = {
       apiKey: "AIzaSyBrKnDDKxTAC9LguE1zWlBSTJoQAUXn3yM",
@@ -49,7 +48,6 @@
       measurementId: "G-JMGSF1S0F7"
     };
 
-    // Safe Firebase Initialization
     if (!firebase.apps.length) {
       firebase.initializeApp(firebaseConfig);
     }
@@ -122,6 +120,10 @@
       // Custom Delete Confirm Modal State
       const [deleteTarget, setDeleteTarget] = React.useState(null);
 
+      // Quick Year Edit Modal State (For Admin to update last active year quickly)
+      const [quickYearTarget, setQuickYearTarget] = React.useState(null);
+      const [quickYearInput, setQuickYearInput] = React.useState('');
+
       // Navigation & Filters
       const [activeTab, setActiveTab] = React.useState('members');
       const [searchQuery, setSearchQuery] = React.useState('');
@@ -131,6 +133,7 @@
       const [filterPayment, setFilterPayment] = React.useState('');
       const [filterTcc, setFilterTcc] = React.useState('');
       const [filterGoodness, setFilterGoodness] = React.useState('');
+      const [filterYear, setFilterYear] = React.useState('');
 
       // Modals
       const [isFormOpen, setIsFormOpen] = React.useState(false);
@@ -138,7 +141,7 @@
       const [viewingMember, setViewingMember] = React.useState(null);
       const [isPrintModalOpen, setIsPrintModalOpen] = React.useState(false);
       const [printMode, setPrintMode] = React.useState('detail'); // 'detail' หรือ 'table'
-      const [printTargetId, setPrintTargetId] = React.useState('ALL'); // 'ALL' หรือ ID สมาชิก
+      const [printTargetId, setPrintTargetId] = React.useState('ALL');
       const [toast, setToast] = React.useState(null);
 
       const showToast = (text, type = 'success') => {
@@ -212,7 +215,6 @@
       React.useEffect(() => {
         if (!user) return;
 
-        // ดึงรหัสผ่าน Admin จาก Cloud Firestore
         const unsubConfig = db.collection('chamber_settings').doc('admin_config')
           .onSnapshot((docSnap) => {
             if (docSnap.exists && docSnap.data().passcode) {
@@ -220,7 +222,6 @@
             }
           }, (err) => console.error("Error reading admin config:", err));
 
-        // ดึงโลโก้หอการค้าถาวรจาก Cloud Firestore
         const unsubLogo = db.collection('chamber_settings').doc('app_logo')
           .onSnapshot((docSnap) => {
             if (docSnap.exists && docSnap.data().logo) {
@@ -228,7 +229,6 @@
             }
           }, (err) => console.error("Error reading logo:", err));
 
-        // ดึงข้อมูลสมาชิกแบบ Real-time
         const unsubMembers = db.collection('chamber_members')
           .onSnapshot((snapshot) => {
             const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -267,12 +267,15 @@
         });
       };
 
+      const currentThaiYear = (new Date().getFullYear() + 543).toString();
+
       const emptyForm = {
         name: '', businessName: '', businessType: 'SME',
         address: '', district: 'เมืองกาฬสินธุ์', phone: '', lineId: '',
         status: 'เป็นสมาชิก', paymentStatus: 'ชำระค่าสมาชิกแล้ว',
         tccConnect: 'NO', goodnessSign: 'ไม่ได้รับ',
-        googleMapUrl: '', entrepreneurPhoto: '', businessPhoto: ''
+        googleMapUrl: '', entrepreneurPhoto: '', businessPhoto: '',
+        lastActiveYear: currentThaiYear
       };
 
       const [formData, setFormData] = React.useState(emptyForm);
@@ -319,21 +322,43 @@
         }
       };
 
+      const handleQuickYearSave = async (e) => {
+        e.preventDefault();
+        if (!quickYearTarget) return;
+        try {
+          await db.collection('chamber_members').doc(quickYearTarget.id).update({
+            lastActiveYear: quickYearInput.trim(),
+            updatedAt: new Date().toISOString()
+          });
+          showToast(`อัปเดตปีสมาชิกล่าสุดของ "${quickYearTarget.name}" เป็น พ.ศ. ${quickYearInput} สำเร็จ`);
+          setQuickYearTarget(null);
+          setQuickYearInput('');
+        } catch (err) {
+          console.error(err);
+          showToast("ไม่สามารถอัปเดตปีสมาชิกได้", "error");
+        }
+      };
+
       const filtered = React.useMemo(() => {
         return members.filter(m => {
           const q = searchQuery.toLowerCase();
-          const matchSearch = !q || (m.name && m.name.toLowerCase().includes(q)) || (m.businessName && m.businessName.toLowerCase().includes(q)) || (m.phone && m.phone.includes(q)) || (m.lineId && m.lineId.toLowerCase().includes(q));
+          const matchSearch = !q || (m.name && m.name.toLowerCase().includes(q)) || (m.businessName && m.businessName.toLowerCase().includes(q)) || (m.phone && m.phone.includes(q)) || (m.lineId && m.lineId.toLowerCase().includes(q)) || (m.lastActiveYear && m.lastActiveYear.includes(q));
           const matchD = !filterDistrict || m.district === filterDistrict;
           const matchT = !filterType || m.businessType === filterType;
           const matchS = !filterStatus || m.status === filterStatus;
           const matchP = !filterPayment || m.paymentStatus === filterPayment;
           const matchTcc = !filterTcc || m.tccConnect === filterTcc;
           const matchG = !filterGoodness || m.goodnessSign === filterGoodness;
-          return matchSearch && matchD && matchT && matchS && matchP && matchTcc && matchG;
+          const matchY = !filterYear || (m.lastActiveYear && m.lastActiveYear === filterYear);
+          return matchSearch && matchD && matchT && matchS && matchP && matchTcc && matchG && matchY;
         });
-      }, [members, searchQuery, filterDistrict, filterType, filterStatus, filterPayment, filterTcc, filterGoodness]);
+      }, [members, searchQuery, filterDistrict, filterType, filterStatus, filterPayment, filterTcc, filterGoodness, filterYear]);
 
-      // ดึงรายการสมาชิกสำหรับพิมพ์ (ทั้งกลุ่ม หรือ รายบุคคล)
+      const availableYears = React.useMemo(() => {
+        const years = new Set(members.map(m => m.lastActiveYear).filter(Boolean));
+        return Array.from(years).sort().reverse();
+      }, [members]);
+
       const membersToPrint = React.useMemo(() => {
         if (printTargetId === 'ALL') return filtered;
         const target = members.find(m => m.id === printTargetId);
@@ -344,6 +369,7 @@
         return {
           total: members.length,
           active: members.filter(m => m.status === 'เป็นสมาชิก').length,
+          inactive: members.filter(m => m.status === 'ไม่ต่อสมาชิก').length,
           paid: members.filter(m => m.paymentStatus === 'ชำระค่าสมาชิกแล้ว').length,
           tcc: members.filter(m => m.tccConnect === 'YES').length,
           goodness: members.filter(m => m.goodnessSign === 'ได้รับ').length
@@ -352,9 +378,9 @@
 
       const exportCSV = () => {
         if (filtered.length === 0) return showToast("ไม่มีข้อมูลให้ส่งออก", "warning");
-        const headers = ["ลำดับ", "ชื่อ-นามสกุล", "ชื่อกิจการ", "ประเภท", "อำเภอ", "เบอร์โทร", "LINE ID", "สถานะ", "การชำระเงิน", "TCC Connect", "ป้ายของดี", "Google Maps"];
+        const headers = ["ลำดับ", "ชื่อ-นามสกุล", "ชื่อกิจการ", "ประเภท", "อำเภอ", "เบอร์โทร", "LINE ID", "สถานะ", "เป็นสมาชิกล่าสุดปี (พ.ศ.)", "การชำระเงิน", "TCC Connect", "ป้ายของดี", "Google Maps"];
         const rows = filtered.map((m, i) => [
-          i + 1, `"${m.name || ''}"`, `"${m.businessName || ''}"`, `"${m.businessType || ''}"`, `"${m.district || ''}"`, `"${m.phone || ''}"`, `"${m.lineId || ''}"`, `"${m.status || ''}"`, `"${m.paymentStatus || ''}"`, `"${m.tccConnect || ''}"`, `"${m.goodnessSign || ''}"`, `"${m.googleMapUrl || ''}"`
+          i + 1, `"${m.name || ''}"`, `"${m.businessName || ''}"`, `"${m.businessType || ''}"`, `"${m.district || ''}"`, `"${m.phone || ''}"`, `"${m.lineId || ''}"`, `"${m.status || ''}"`, `"${m.lastActiveYear || ''}"`, `"${m.paymentStatus || ''}"`, `"${m.tccConnect || ''}"`, `"${m.goodnessSign || ''}"`, `"${m.googleMapUrl || ''}"`
         ]);
         const csv = "\uFEFF" + [headers.join(","), ...rows.map(r => r.join(","))].join("\n");
         const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -447,13 +473,15 @@
             </div>
           </header>
 
+          {}
           <main className="max-w-7xl mx-auto px-4 py-6 flex-1 w-full">
             {loading ? (
               <div className="text-center py-20 text-slate-500 font-medium">กำลังโหลดข้อมูลจาก Cloud Firebase...</div>
             ) : activeTab === 'dashboard' ? (
-              <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+              <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
                 <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm"><span className="text-xs text-slate-400">สมาชิกทั้งหมด</span><div className="text-2xl font-bold text-blue-950 mt-1">{stats.total}</div></div>
                 <div className="bg-white p-4 rounded-xl border border-emerald-200 bg-emerald-50/40 shadow-sm"><span className="text-xs text-emerald-700">สมาชิกปัจจุบัน</span><div className="text-2xl font-bold text-emerald-700 mt-1">{stats.active}</div></div>
+                <div className="bg-white p-4 rounded-xl border border-rose-200 bg-rose-50/40 shadow-sm"><span className="text-xs text-rose-700">ไม่ต่อสมาชิก</span><div className="text-2xl font-bold text-rose-700 mt-1">{stats.inactive}</div></div>
                 <div className="bg-white p-4 rounded-xl border border-blue-200 bg-blue-50/40 shadow-sm"><span className="text-xs text-blue-700">ชำระค่าสมาชิกแล้ว</span><div className="text-2xl font-bold text-blue-700 mt-1">{stats.paid}</div></div>
                 <div className="bg-white p-4 rounded-xl border border-indigo-200 bg-indigo-50/40 shadow-sm"><span className="text-xs text-indigo-700">TCC Connect</span><div className="text-2xl font-bold text-indigo-700 mt-1">{stats.tcc}</div></div>
                 <div className="bg-white p-4 rounded-xl border border-amber-200 bg-amber-50/40 shadow-sm"><span className="text-xs text-amber-700">ป้ายของดี</span><div className="text-2xl font-bold text-amber-700 mt-1">{stats.goodness}</div></div>
@@ -463,22 +491,24 @@
                 {/* Search & Filters */}
                 <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-3">
                   <div className="flex flex-col sm:flex-row gap-3">
-                    <input type="text" placeholder="🔍 ค้นหาชื่อผู้ประกอบการ, ร้านค้า, เบอร์โทร, ID LINE..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-800" />
-                    {(searchQuery || filterDistrict || filterType || filterStatus || filterPayment || filterTcc || filterGoodness) && (
-                      <button onClick={() => { setSearchQuery(''); setFilterDistrict(''); setFilterType(''); setFilterStatus(''); setFilterPayment(''); setFilterTcc(''); setFilterGoodness(''); }} className="shrink-0 text-xs text-rose-600 bg-rose-50 border border-rose-200 px-3 py-2 rounded-lg font-medium">ล้างตัวกรอง</button>
+                    <input type="text" placeholder="🔍 ค้นหาชื่อผู้ประกอบการ, ร้านค้า, เบอร์โทร, ID LINE, หรือพิมพ์ปี พ.ศ. เช่น 2560..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-800" />
+                    {(searchQuery || filterDistrict || filterType || filterStatus || filterPayment || filterTcc || filterGoodness || filterYear) && (
+                      <button onClick={() => { setSearchQuery(''); setFilterDistrict(''); setFilterType(''); setFilterStatus(''); setFilterPayment(''); setFilterTcc(''); setFilterGoodness(''); setFilterYear(''); }} className="shrink-0 text-xs text-rose-600 bg-rose-50 border border-rose-200 px-3 py-2 rounded-lg font-medium">ล้างตัวกรอง</button>
                     )}
                   </div>
 
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2 text-xs">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-7 gap-2 text-xs">
                     <select value={filterDistrict} onChange={e => setFilterDistrict(e.target.value)} className="p-1.5 border border-slate-300 rounded bg-white"><option value="">-- อำเภอ --</option>{KALASIN_DISTRICTS.map(d => <option key={d} value={d}>{d}</option>)}</select>
                     <select value={filterType} onChange={e => setFilterType(e.target.value)} className="p-1.5 border border-slate-300 rounded bg-white"><option value="">-- ประเภทธุรกิจ --</option>{BUSINESS_TYPES.map(t => <option key={t} value={t}>{t}</option>)}</select>
                     <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} className="p-1.5 border border-slate-300 rounded bg-white"><option value="">-- สถานะ --</option><option value="เป็นสมาชิก">เป็นสมาชิก</option><option value="ไม่ต่อสมาชิก">ไม่ต่อสมาชิก</option></select>
                     <select value={filterPayment} onChange={e => setFilterPayment(e.target.value)} className="p-1.5 border border-slate-300 rounded bg-white"><option value="">-- การชำระเงิน --</option><option value="ชำระค่าสมาชิกแล้ว">ชำระแล้ว</option><option value="ยังไม่ชำระ">ยังไม่ชำระ</option></select>
                     <select value={filterTcc} onChange={e => setFilterTcc(e.target.value)} className="p-1.5 border border-slate-300 rounded bg-white"><option value="">-- TCC Connect --</option><option value="YES">YES</option><option value="NO">NO</option></select>
                     <select value={filterGoodness} onChange={e => setFilterGoodness(e.target.value)} className="p-1.5 border border-slate-300 rounded bg-white"><option value="">-- ป้ายของดี --</option><option value="ได้รับ">ได้รับ</option><option value="ไม่ได้รับ">ไม่ได้รับ</option></select>
+                    <select value={filterYear} onChange={e => setFilterYear(e.target.value)} className="p-1.5 border border-amber-300 bg-amber-50/50 rounded text-blue-950 font-bold"><option value="">-- ปีสมาชิกล่าสุด --</option>{availableYears.map(y => <option key={y} value={y}>พ.ศ. {y}</option>)}</select>
                   </div>
                 </div>
 
+                {}
                 <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
                   <div className="overflow-x-auto">
                     <table className="w-full text-left text-xs">
@@ -488,7 +518,7 @@
                           <th className="p-3">ผู้ประกอบการ / กิจการ</th>
                           <th className="p-3">ที่อยู่ & อำเภอ</th>
                           <th className="p-3">ติดต่อ</th>
-                          <th className="p-3 text-center">สถานะ</th>
+                          <th className="p-3 text-center">สถานะ & ปีสมาชิกล่าสุด</th>
                           <th className="p-3 text-center">ชำระเงิน</th>
                           <th className="p-3 text-center">TCC</th>
                           <th className="p-3 text-center">ป้ายของดี</th>
@@ -521,7 +551,30 @@
                                 {m.lineId && <div className="text-emerald-700 font-semibold mt-0.5">LINE: {m.lineId}</div>}
                               </td>
                               <td className="p-3 text-center">
-                                <span className={`px-2 py-0.5 rounded-full font-bold ${m.status === 'เป็นสมาชิก' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}`}>{m.status}</span>
+                                <span className={`px-2 py-0.5 rounded-full font-bold ${m.status === 'เป็นสมาชิก' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}`}>
+                                  {m.status}
+                                </span>
+                                {m.status === 'ไม่ต่อสมาชิก' ? (
+                                  <div className="mt-1">
+                                    <span 
+                                      onClick={() => {
+                                        if (isAdmin) {
+                                          setQuickYearTarget(m);
+                                          setQuickYearInput(m.lastActiveYear || '');
+                                        }
+                                      }}
+                                      className={`text-[10px] bg-amber-50 border border-amber-300 text-amber-900 font-bold px-1.5 py-0.5 rounded inline-flex items-center gap-1 ${isAdmin ? 'cursor-pointer hover:bg-amber-200 transition-colors' : ''}`}
+                                      title={isAdmin ? "คลิกเพื่อแก้ไขปีสมาชิกล่าสุดด่วน" : "ปีที่เป็นสมาชิกล่าสุด"}
+                                    >
+                                      สมาชิกล่าสุด: พ.ศ. {m.lastActiveYear || '-'}
+                                      {isAdmin && <span className="text-[9px] text-amber-700">✏️</span>}
+                                    </span>
+                                  </div>
+                                ) : (
+                                  <div className="text-[10px] text-slate-500 mt-0.5">
+                                    ปี พ.ศ. {m.lastActiveYear || '-'}
+                                  </div>
+                                )}
                               </td>
                               <td className="p-3 text-center">
                                 <span className={`px-2 py-0.5 rounded-full font-medium ${m.paymentStatus === 'ชำระค่าสมาชิกแล้ว' ? 'bg-blue-100 text-blue-800' : 'bg-amber-100 text-amber-800'}`}>{m.paymentStatus}</span>
@@ -530,13 +583,10 @@
                               <td className="p-3 text-center font-medium">{m.goodnessSign}</td>
                               <td className="p-3 text-center">
                                 <div className="flex justify-center gap-1">
-                                  {/* สมาชิกทั่วไปเห็นเฉพาะปุ่มดูบัตร */}
                                   <button onClick={() => setViewingMember(m)} className="p-1 text-blue-700 hover:bg-blue-100 rounded" title="ดูบัตร">👁️</button>
-                                  
-                                  {/* เฉพาะ Admin เท่านั้นจึงจะเห็นปุ่มแก้ไขและปุ่มลบ */}
                                   {isAdmin && (
                                     <>
-                                      <button onClick={() => { setEditingMember(m); setFormData({ ...m }); setIsFormOpen(true); }} className="p-1 text-amber-600 hover:bg-amber-100 rounded" title="แก้ไข">✏️</button>
+                                      <button onClick={() => { setEditingMember(m); setFormData({ ...emptyForm, ...m }); setIsFormOpen(true); }} className="p-1 text-amber-600 hover:bg-amber-100 rounded" title="แก้ไข">✏️</button>
                                       <button onClick={() => confirmDelete(m)} className="p-1 text-rose-600 hover:bg-rose-100 rounded" title="ลบ">🗑️</button>
                                     </>
                                   )}
@@ -553,6 +603,7 @@
             )}
           </main>
 
+          {}
           {isFormOpen && (
             <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
               <div className="bg-white rounded-2xl max-w-xl w-full max-h-[90vh] flex flex-col overflow-hidden shadow-2xl border border-slate-200">
@@ -608,13 +659,58 @@
                     <input type="url" placeholder="https://maps.google.com/?q=..." value={formData.googleMapUrl} onChange={e => setFormData({ ...formData, googleMapUrl: e.target.value })} className="w-full p-2 border rounded font-mono text-[11px]" />
                   </div>
 
-                  <div className="grid grid-cols-2 gap-3 pt-2 border-t">
-                    <div>
-                      <label className="font-bold block mb-1">6. สถานะ</label>
-                      <select value={formData.status} onChange={e => setFormData({ ...formData, status: e.target.value })} className="w-full p-2 border rounded bg-white">
-                        <option value="เป็นสมาชิก">เป็นสมาชิก</option><option value="ไม่ต่อสมาชิก">ไม่ต่อสมาชิก</option>
-                      </select>
+                  {/* Status & Fully Customizable Latest Year Selection */}
+                  <div className={`p-3 rounded-lg space-y-3 transition-colors ${formData.status === 'ไม่ต่อสมาชิก' ? 'bg-amber-50 border-2 border-amber-400' : 'bg-slate-50 border'}`}>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="font-bold block mb-1 text-slate-800">6. สถานะสมาชิก</label>
+                        <select value={formData.status} onChange={e => setFormData({ ...formData, status: e.target.value })} className="w-full p-2 border rounded bg-white font-bold">
+                          <option value="เป็นสมาชิก">เป็นสมาชิก</option>
+                          <option value="ไม่ต่อสมาชิก">ไม่ต่อสมาชิก</option>
+                        </select>
+                      </div>
+                      
+                      <div>
+                        <label className="font-bold block mb-1 text-slate-800 flex items-center justify-between">
+                          <span>เป็นสมาชิกล่าสุดปี (พ.ศ.) *</span>
+                          <span className="text-[10px] text-amber-700 font-normal">พิมพ์ระบุเองได้</span>
+                        </label>
+                        <input 
+                          type="text" 
+                          required
+                          placeholder="เช่น 2555, 2560, 2565, 2567" 
+                          value={formData.lastActiveYear || ''} 
+                          onChange={e => setFormData({ ...formData, lastActiveYear: e.target.value })} 
+                          className="w-full p-2 border border-slate-300 rounded bg-white font-bold text-blue-950 text-center text-sm shadow-inner" 
+                        />
+                      </div>
                     </div>
+
+                    {/* Quick Preset Buttons for Easy Year Entry */}
+                    <div>
+                      <span className="block text-[11px] font-semibold text-slate-600 mb-1.5">⚡ ปุ่มลัดเลือกปี หรือพิมพ์ปีใดๆ เองในช่องด้านบน:</span>
+                      <div className="flex flex-wrap gap-1">
+                        {["2569", "2568", "2567", "2566", "2565", "2564", "2563", "2562", "2560", "2558", "2555", "2550"].map(yr => (
+                          <button
+                            key={yr}
+                            type="button"
+                            onClick={() => setFormData({ ...formData, lastActiveYear: yr })}
+                            className={`px-2 py-0.5 rounded text-[11px] font-medium border transition-all ${formData.lastActiveYear === yr ? 'bg-blue-950 text-white border-blue-950 font-bold shadow-sm' : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'}`}
+                          >
+                            {yr}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {formData.status === 'ไม่ต่อสมาชิก' && (
+                      <p className="text-[11px] text-amber-900 font-semibold bg-amber-100/70 p-2 rounded border border-amber-300">
+                        ⚠️ **บันทึกประวัติ**: สมาชิกรายนี้ไม่ต่ออายุ ระบบจะบันทึกประวัติว่าเคยเป็นสมาชิกล่าสุดถึงปี <strong>พ.ศ. {formData.lastActiveYear || '-'}</strong>
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-3 pt-2 border-t">
                     <div>
                       <label className="font-bold block mb-1">7. การชำระเงิน</label>
                       <select value={formData.paymentStatus} onChange={e => setFormData({ ...formData, paymentStatus: e.target.value })} className="w-full p-2 border rounded bg-white">
@@ -664,6 +760,7 @@
             </div>
           )}
 
+          {}
           {viewingMember && (
             <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
               <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden shadow-2xl">
@@ -690,8 +787,8 @@
                         </div>
                       </div>
                       <div className="mt-3 pt-2 border-t border-blue-800 grid grid-cols-2 gap-2 text-[10px]">
-                        <div>สถานะ: <strong className="text-emerald-400">{viewingMember.status}</strong></div>
-                        <div>TCC Connect: <strong className="text-amber-300">{viewingMember.tccConnect}</strong></div>
+                        <div>สถานะ: <strong className={viewingMember.status === 'เป็นสมาชิก' ? "text-emerald-400" : "text-rose-300"}>{viewingMember.status}</strong></div>
+                        <div>สมาชิกล่าสุด: <strong className="text-amber-300">ปี พ.ศ. {viewingMember.lastActiveYear || '-'}</strong></div>
                       </div>
                     </div>
 
@@ -704,6 +801,7 @@
                         <div><strong>ที่อยู่:</strong> {viewingMember.address}</div>
                         <div><strong>เบอร์โทร:</strong> {viewingMember.phone || '-'}</div>
                         <div><strong>LINE ID:</strong> {viewingMember.lineId || '-'}</div>
+                        <div><strong>เป็นสมาชิกล่าสุดปี:</strong> <span className="text-blue-900 font-bold">พ.ศ. {viewingMember.lastActiveYear || '-'}</span></div>
                         <div><strong>ค่าสมาชิก:</strong> <span className="text-blue-700 font-bold">{viewingMember.paymentStatus}</span></div>
                         <div><strong>ป้ายของดี:</strong> <span className="text-amber-700 font-bold">{viewingMember.goodnessSign}</span></div>
                       </div>
@@ -727,6 +825,55 @@
             </div>
           )}
 
+          {}
+          {quickYearTarget && (
+            <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4">
+              <div className="bg-white rounded-2xl max-w-sm w-full p-5 shadow-2xl border space-y-3">
+                <div className="text-center">
+                  <div className="text-2xl">📅</div>
+                  <h4 className="font-bold text-sm text-blue-950 mt-1">แก้ไขปีสมาชิกล่าสุดด่วน</h4>
+                  <p className="text-xs text-slate-600 font-medium mt-0.5 truncate">{quickYearTarget.name} ({quickYearTarget.businessName})</p>
+                </div>
+                <form onSubmit={handleQuickYearSave} className="space-y-3 text-xs">
+                  <div>
+                    <label className="font-bold block mb-1 text-slate-700">ปี พ.ศ. สมาชิกล่าสุด (พิมพ์ปีใดๆ ได้อย่างอิสระ):</label>
+                    <input 
+                      type="text" 
+                      required 
+                      autoFocus
+                      placeholder="เช่น 2554, 2558, 2563, 2567" 
+                      value={quickYearInput} 
+                      onChange={e => setQuickYearInput(e.target.value)} 
+                      className="w-full p-2.5 border-2 border-amber-400 rounded-lg text-center font-bold text-base text-blue-950 shadow-inner" 
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <span className="text-[10px] font-semibold text-slate-500 block">กดเลือกปียอดนิยม:</span>
+                    <div className="flex flex-wrap gap-1">
+                      {["2568", "2567", "2566", "2565", "2564", "2563", "2560", "2558", "2555", "2550"].map(yr => (
+                        <button
+                          key={yr}
+                          type="button"
+                          onClick={() => setQuickYearInput(yr)}
+                          className={`px-2 py-0.5 rounded text-[10px] font-semibold border ${quickYearInput === yr ? 'bg-blue-950 text-white border-blue-950' : 'bg-slate-50 text-slate-700 border-slate-300'}`}
+                        >
+                          {yr}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="flex gap-2 pt-2 border-t">
+                    <button type="button" onClick={() => setQuickYearTarget(null)} className="flex-1 py-1.5 border rounded text-xs font-semibold">ยกเลิก</button>
+                    <button type="submit" className="flex-1 py-1.5 bg-blue-950 text-white font-bold rounded text-xs shadow">บันทึกปี</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {}
           {isAdminModalOpen && (
             <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4">
               <div className="bg-white rounded-2xl max-w-xs w-full p-5 shadow-2xl border text-center space-y-3">
@@ -745,7 +892,6 @@
             </div>
           )}
 
-          {/* Change Admin Password Modal */}
           {isChangePassModalOpen && (
             <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4">
               <div className="bg-white rounded-2xl max-w-sm w-full p-5 shadow-2xl border space-y-3">
@@ -777,7 +923,6 @@
             </div>
           )}
 
-          {/* Custom Delete Confirmation Modal */}
           {deleteTarget && (
             <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4">
               <div className="bg-white rounded-2xl max-w-xs w-full p-5 shadow-2xl border text-center space-y-3">
@@ -794,7 +939,7 @@
             </div>
           )}
 
-          {/* Print / Report Modal */}
+          {}
           {isPrintModalOpen && (
             <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4">
               <div className="bg-white rounded-2xl max-w-5xl w-full max-h-[95vh] flex flex-col overflow-hidden shadow-2xl">
@@ -848,7 +993,6 @@
                   </div>
 
                   {printMode === 'detail' ? (
-                    /* Detailed Printable View with Photos */
                     <div className="space-y-4">
                       {membersToPrint.map((m, i) => (
                         <div key={m.id} className="border border-slate-300 rounded-lg p-3.5 bg-white space-y-2 text-xs break-inside-avoid print:break-inside-avoid shadow-sm">
@@ -885,6 +1029,7 @@
                             {/* Details 2 */}
                             <div className="space-y-1.5 bg-slate-50 p-2.5 border border-slate-200 rounded">
                               <div><strong className="text-slate-700">สถานะสมาชิก:</strong> <span className={m.status === 'เป็นสมาชิก' ? 'text-emerald-700 font-bold' : 'text-rose-700 font-bold'}>{m.status}</span></div>
+                              <div><strong className="text-slate-700">เป็นสมาชิกล่าสุดปี:</strong> <span className="text-blue-900 font-bold">พ.ศ. {m.lastActiveYear || '-'}</span></div>
                               <div><strong className="text-slate-700">การชำระเงิน:</strong> <span className="text-blue-800 font-bold">{m.paymentStatus}</span></div>
                               <div><strong className="text-slate-700">TCC Connect:</strong> <span className="font-bold text-indigo-700">{m.tccConnect}</span></div>
                               <div><strong className="text-slate-700">ป้ายของดีหอการค้า:</strong> <span className="font-bold text-amber-700">{m.goodnessSign}</span></div>
@@ -894,11 +1039,10 @@
                       ))}
                     </div>
                   ) : (
-                    /* Summary Table View */
                     <table className="w-full text-left text-xs border border-slate-300">
                       <thead>
                         <tr className="bg-blue-950 text-white">
-                          <th className="p-2 border">#</th><th className="p-2 border">ชื่อ-นามสกุล</th><th className="p-2 border">ชื่อกิจการ</th><th className="p-2 border">อำเภอ</th><th className="p-2 border">เบอร์ติดต่อ</th><th className="p-2 border">สถานะ</th><th className="p-2 border">ชำระเงิน</th><th className="p-2 border">TCC</th>
+                          <th className="p-2 border">#</th><th className="p-2 border">ชื่อ-นามสกุล</th><th className="p-2 border">ชื่อกิจการ</th><th className="p-2 border">อำเภอ</th><th className="p-2 border">เบอร์ติดต่อ</th><th className="p-2 border">สถานะ</th><th className="p-2 border">สมาชิกล่าสุดปี</th><th className="p-2 border">ชำระเงิน</th><th className="p-2 border">TCC</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -910,6 +1054,7 @@
                             <td className="p-2 border font-bold">{m.district}</td>
                             <td className="p-2 border">{m.phone || '-'}</td>
                             <td className="p-2 border text-center">{m.status}</td>
+                            <td className="p-2 border text-center font-bold text-blue-900">พ.ศ. {m.lastActiveYear || '-'}</td>
                             <td className="p-2 border text-center">{m.paymentStatus}</td>
                             <td className="p-2 border text-center font-bold">{m.tccConnect}</td>
                           </tr>
@@ -934,7 +1079,7 @@
             </div>
           )}
 
-          {/* Footer */}
+          {}
           <footer className="bg-blue-950 text-blue-300 text-xs py-3 border-t border-blue-900 print:hidden">
             <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row justify-between items-center gap-2">
               <span>&copy; {new Date().getFullYear()} ระบบบริหารจัดการสมาชิก หอการค้าจังหวัดกาฬสินธุ์</span>
