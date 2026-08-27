@@ -1,0 +1,693 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ระบบฐานข้อมูลสมาชิก หอการค้าจังหวัดกาฬสินธุ์</title>
+  
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- Google Fonts Sarabun -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+  <!-- React 18 & Babel Scripts -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <style>
+    body {
+      font-family: 'Sarabun', sans-serif;
+    }
+    @media print {
+      .print\:hidden { display: none !important; }
+      body { background: white !important; }
+    }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 antialiased">
+  <div id="root"></div>
+
+  <!-- Main Application Script (ES Module with Babel) -->
+  <script type="text/babel" data-type="module">
+    import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
+    import { getAuth, signInAnonymously, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js';
+    import { getFirestore, collection, doc, onSnapshot, addDoc, updateDoc, deleteDoc } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
+
+    // Firebase Config จากโปรเจกต์ของน้าราม
+    const firebaseConfig = {
+      apiKey: "AIzaSyBrKnDDKxTAC9LguE1zWlBSTJoQAUXn3yM",
+      authDomain: "my-rat-trap.firebaseapp.com",
+      projectId: "my-rat-trap",
+      storageBucket: "my-rat-trap.firebasestorage.app",
+      messagingSenderId: "847693841799",
+      appId: "1:847693841799:web:30a834dd41b128d97f7f22",
+      measurementId: "G-JMGSF1S0F7"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+
+    // รายชื่อ 18 อำเภอ ในจังหวัดกาฬสินธุ์
+    const KALASIN_DISTRICTS = [
+      "เมืองกาฬสินธุ์", "กมลาไสย", "ยางตลาด", "ห้วยเม็ก", "สหัสขันธ์", 
+      "สมเด็จ", "กุฉินารายณ์", "ท่าคันโท", "เขาวง", "ห้วยผึ้ง", 
+      "คำม่วง", "หนองกุงศรี", "นามน", "ร่องคำ", "ดอนจาน", 
+      "ฆ้องชัย", "สามชัย", "นาคู"
+    ];
+
+    // ประเภทธุรกิจ
+    const BUSINESS_TYPES = [
+      "ผู้ประกอบการขนาดเล็ก",
+      "SME",
+      "อุตสาหกรรม",
+      "วิสาหกิจชุมชน / การเกษตร",
+      "บริการและท่องเที่ยว"
+    ];
+
+    // ระบบบีบอัดรูปภาพ
+    const compressImage = (file, maxWidth = 500, quality = 0.75) => {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = (event) => {
+          const img = new window.Image();
+          img.src = event.target.result;
+          img.onload = () => {
+            const canvas = document.createElement('canvas');
+            let width = img.width;
+            let height = img.height;
+            if (width > maxWidth) {
+              height = Math.round((height * maxWidth) / width);
+              width = maxWidth;
+            }
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, width, height);
+            resolve(canvas.toDataURL('image/jpeg', quality));
+          };
+          img.onerror = (err) => reject(err);
+        };
+        reader.onerror = (err) => reject(err);
+      });
+    };
+
+    function App() {
+      const [user, setUser] = React.useState(null);
+      const [members, setMembers] = React.useState([]);
+      const [loading, setLoading] = React.useState(true);
+      const [customLogo, setCustomLogo] = React.useState(null);
+
+      // Admin State
+      const [isAdmin, setIsAdmin] = React.useState(false);
+      const [isAdminModalOpen, setIsAdminModalOpen] = React.useState(false);
+      const [adminPasscode, setAdminPasscode] = React.useState('');
+      const [adminError, setAdminError] = React.useState('');
+      const [pendingAction, setPendingAction] = React.useState(null);
+      const ADMIN_SECRET = '1234';
+
+      // Navigation & Filters
+      const [activeTab, setActiveTab] = React.useState('members');
+      const [searchQuery, setSearchQuery] = React.useState('');
+      const [filterDistrict, setFilterDistrict] = React.useState('');
+      const [filterType, setFilterType] = React.useState('');
+      const [filterStatus, setFilterStatus] = React.useState('');
+      const [filterPayment, setFilterPayment] = React.useState('');
+      const [filterTcc, setFilterTcc] = React.useState('');
+      const [filterGoodness, setFilterGoodness] = React.useState('');
+
+      // Modals
+      const [isFormOpen, setIsFormOpen] = React.useState(false);
+      const [editingMember, setEditingMember] = React.useState(null);
+      const [viewingMember, setViewingMember] = React.useState(null);
+      const [isPrintModalOpen, setIsPrintModalOpen] = React.useState(false);
+      const [toast, setToast] = React.useState(null);
+
+      const showToast = (text, type = 'success') => {
+        setToast({ text, type });
+        setTimeout(() => setToast(null), 3500);
+      };
+
+      const executeAdminProtected = (action) => {
+        if (isAdmin) {
+          if (typeof action === 'function') action();
+        } else {
+          setPendingAction(() => action);
+          setAdminPasscode('');
+          setAdminError('');
+          setIsAdminModalOpen(true);
+        }
+      };
+
+      const handleAdminLogin = (e) => {
+        e.preventDefault();
+        if (adminPasscode === ADMIN_SECRET) {
+          setIsAdmin(true);
+          setIsAdminModalOpen(false);
+          showToast("เข้าสู่ระบบ Admin สำเร็จ");
+          if (pendingAction) {
+            pendingAction();
+            setPendingAction(null);
+          }
+        } else {
+          setAdminError('รหัสผ่าน Admin ไม่ถูกต้อง (รหัสเริ่มต้น: 1234)');
+        }
+      };
+
+      React.useEffect(() => {
+        signInAnonymously(auth).catch(console.error);
+        return onAuthStateChanged(auth, setUser);
+      }, []);
+
+      React.useEffect(() => {
+        if (!user) return;
+        const membersRef = collection(db, 'chamber_members');
+        return onSnapshot(membersRef, (snapshot) => {
+          const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          setMembers(data);
+          setLoading(false);
+        }, (err) => {
+          console.error(err);
+          showToast("ไม่สามารถดึงข้อมูลได้ กรุณาตรวจ Firestore Rules", "error");
+          setLoading(false);
+        });
+      }, [user]);
+
+      const emptyForm = {
+        name: '', businessName: '', businessType: 'SME',
+        address: '', district: 'เมืองกาฬสินธุ์', phone: '', lineId: '',
+        status: 'เป็นสมาชิก', paymentStatus: 'ชำระค่าสมาชิกแล้ว',
+        tccConnect: 'NO', goodnessSign: 'ไม่ได้รับ',
+        googleMapUrl: '', entrepreneurPhoto: '', businessPhoto: ''
+      };
+
+      const [formData, setFormData] = React.useState(emptyForm);
+
+      const handleSave = async (e) => {
+        e.preventDefault();
+        if (!formData.name.trim() || !formData.businessName.trim()) {
+          showToast("กรุณากรอกชื่อและชื่อกิจการ", "error");
+          return;
+        }
+
+        try {
+          const payload = { ...formData, updatedAt: new Date().toISOString() };
+          const membersRef = collection(db, 'chamber_members');
+          if (editingMember) {
+            await updateDoc(doc(db, 'chamber_members', editingMember.id), payload);
+            showToast("อัปเดตข้อมูลสำเร็จ");
+          } else {
+            payload.createdAt = new Date().toISOString();
+            await addDoc(membersRef, payload);
+            showToast("เพิ่มสมาชิกใหม่สำเร็จ");
+          }
+          setIsFormOpen(false);
+        } catch (err) {
+          console.error(err);
+          showToast("เกิดข้อผิดพลาดในการบันทึก", "error");
+        }
+      };
+
+      const handleDelete = (id, name) => {
+        executeAdminProtected(async () => {
+          if (!window.confirm(`ต้องการลบข้อมูลสมาชิก: ${name}?`)) return;
+          try {
+            await deleteDoc(doc(db, 'chamber_members', id));
+            showToast("ลบข้อมูลสำเร็จ");
+          } catch (err) {
+            showToast("ลบข้อมูลไม่สำเร็จ", "error");
+          }
+        });
+      };
+
+      const filtered = React.useMemo(() => {
+        return members.filter(m => {
+          const q = searchQuery.toLowerCase();
+          const matchSearch = !q || (m.name && m.name.toLowerCase().includes(q)) || (m.businessName && m.businessName.toLowerCase().includes(q)) || (m.phone && m.phone.includes(q)) || (m.lineId && m.lineId.toLowerCase().includes(q));
+          const matchD = !filterDistrict || m.district === filterDistrict;
+          const matchT = !filterType || m.businessType === filterType;
+          const matchS = !filterStatus || m.status === filterStatus;
+          const matchP = !filterPayment || m.paymentStatus === filterPayment;
+          const matchTcc = !filterTcc || m.tccConnect === filterTcc;
+          const matchG = !filterGoodness || m.goodnessSign === filterGoodness;
+          return matchSearch && matchD && matchT && matchS && matchP && matchTcc && matchG;
+        });
+      }, [members, searchQuery, filterDistrict, filterType, filterStatus, filterPayment, filterTcc, filterGoodness]);
+
+      const stats = React.useMemo(() => {
+        return {
+          total: members.length,
+          active: members.filter(m => m.status === 'เป็นสมาชิก').length,
+          paid: members.filter(m => m.paymentStatus === 'ชำระค่าสมาชิกแล้ว').length,
+          tcc: members.filter(m => m.tccConnect === 'YES').length,
+          goodness: members.filter(m => m.goodnessSign === 'ได้รับ').length
+        };
+      }, [members]);
+
+      const exportCSV = () => {
+        if (filtered.length === 0) return showToast("ไม่มีข้อมูลให้ส่งออก", "warning");
+        const headers = ["ลำดับ", "ชื่อ-นามสกุล", "ชื่อกิจการ", "ประเภท", "อำเภอ", "เบอร์โทร", "LINE ID", "สถานะ", "การชำระเงิน", "TCC Connect", "ป้ายของดี", "Google Maps"];
+        const rows = filtered.map((m, i) => [
+          i + 1, `"${m.name || ''}"`, `"${m.businessName || ''}"`, `"${m.businessType || ''}"`, `"${m.district || ''}"`, `"${m.phone || ''}"`, `"${m.lineId || ''}"`, `"${m.status || ''}"`, `"${m.paymentStatus || ''}"`, `"${m.tccConnect || ''}"`, `"${m.goodnessSign || ''}"`, `"${m.googleMapUrl || ''}"`
+        ]);
+        const csv = "\uFEFF" + [headers.join(","), ...rows.map(r => r.join(","))].join("\n");
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `สมาชิกหอการค้ากาฬสินธุ์_${new Date().toISOString().slice(0,10)}.csv`;
+        link.click();
+        showToast("ส่งออกไฟล์ CSV เรียบร้อยแล้ว");
+      };
+
+      return (
+        <div className="min-h-screen flex flex-col">
+          {/* Toast */}
+          {toast && (
+            <div className={`fixed top-4 right-4 z-50 px-4 py-2.5 rounded-lg text-white font-medium shadow-xl text-sm ${toast.type === 'error' ? 'bg-rose-600' : toast.type === 'warning' ? 'bg-amber-500' : 'bg-emerald-600'}`}>
+              {toast.text}
+            </div>
+          )}
+
+          {/* Header */}
+          <header className="bg-gradient-to-r from-blue-950 via-blue-900 to-indigo-950 text-white shadow-lg border-b-4 border-amber-500 sticky top-0 z-30 print:hidden">
+            <div className="max-w-7xl mx-auto px-4 py-3">
+              <div className="flex flex-col md:flex-row items-center justify-between gap-4">
+                
+                <div className="flex items-center gap-3 w-full md:w-auto">
+                  <label htmlFor="logo-up" className="cursor-pointer shrink-0" title="คลิกเพื่อเปลี่ยนโลโก้">
+                    {customLogo ? (
+                      <img src={customLogo} className="w-12 h-12 object-contain rounded-full bg-white p-1 border-2 border-amber-400" />
+                    ) : (
+                      <div className="w-12 h-12 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 text-blue-950 font-black flex items-center justify-center border-2 border-white shadow">
+                        TCC
+                      </div>
+                    )}
+                  </label>
+                  <input id="logo-up" type="file" accept="image/*" className="hidden" onChange={async (e) => {
+                    if (e.target.files[0]) {
+                      const b64 = await compressImage(e.target.files[0], 250);
+                      setCustomLogo(b64);
+                    }
+                  }} />
+
+                  <div>
+                    <h1 className="text-lg md:text-xl font-bold text-white leading-tight">
+                      ระบบฐานข้อมูลสมาชิก หอการค้าจังหวัดกาฬสินธุ์
+                    </h1>
+                    <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                      <span className="text-[11px] text-blue-200">Kalasin Chamber of Commerce</span>
+                      <span className="text-[10px] bg-blue-800 border border-amber-400/50 px-2 py-0.2 rounded text-amber-300 font-medium">
+                        ✨ พัฒนาระบบโดย น้าราม [เลขาธิการหอการค้าจังหวัดกาฬสินธุ์]
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 flex-wrap justify-end w-full md:w-auto">
+                  {isAdmin ? (
+                    <span className="bg-emerald-900/90 border border-emerald-400 text-emerald-200 text-xs px-2.5 py-1.5 rounded-lg flex items-center gap-1 font-semibold">
+                      โหมด Admin
+                      <button onClick={() => { setIsAdmin(false); showToast("ออกจากโหมด Admin", "warning"); }} className="ml-1 bg-emerald-700 text-white px-1.5 py-0.5 rounded text-[10px]">ออก</button>
+                    </span>
+                  ) : (
+                    <button onClick={() => executeAdminProtected(() => {})} className="bg-blue-900 hover:bg-blue-800 text-blue-200 text-xs px-3 py-2 rounded-lg border border-blue-700">
+                      🔒 เข้าสู่ระบบ Admin
+                    </button>
+                  )}
+
+                  <button onClick={() => executeAdminProtected(() => { setEditingMember(null); setFormData(emptyForm); setIsFormOpen(true); })} className="bg-amber-500 hover:bg-amber-400 text-blue-950 font-bold px-3.5 py-2 rounded-lg text-xs shadow">
+                    + เพิ่มสมาชิกใหม่
+                  </button>
+                  <button onClick={exportCSV} className="bg-blue-800 hover:bg-blue-700 text-white px-3 py-2 rounded-lg text-xs border border-blue-600">
+                    📥 CSV (Excel)
+                  </button>
+                  <button onClick={() => setIsPrintModalOpen(true)} className="bg-blue-800 hover:bg-blue-700 text-white px-3 py-2 rounded-lg text-xs border border-blue-600">
+                    🖨️ พิมพ์ / PDF
+                  </button>
+                </div>
+
+              </div>
+
+              {/* Tabs */}
+              <div className="flex gap-2 mt-3 pt-2 border-t border-blue-800/60 text-xs">
+                <button onClick={() => setActiveTab('members')} className={`px-3 py-1.5 rounded-md font-semibold ${activeTab === 'members' ? 'bg-white text-blue-950 shadow' : 'text-blue-200 hover:bg-blue-800'}`}>
+                  รายชื่อสมาชิก ({filtered.length})
+                </button>
+                <button onClick={() => setActiveTab('dashboard')} className={`px-3 py-1.5 rounded-md font-semibold ${activeTab === 'dashboard' ? 'bg-white text-blue-950 shadow' : 'text-blue-200 hover:bg-blue-800'}`}>
+                  สถิติภาพรวม
+                </button>
+              </div>
+            </div>
+          </header>
+
+          {/* Main Container */}
+          <main className="max-w-7xl mx-auto px-4 py-6 flex-1 w-full">
+            {loading ? (
+              <div className="text-center py-20 text-slate-500 font-medium">กำลังโหลดข้อมูลจาก Cloud Firebase...</div>
+            ) : activeTab === 'dashboard' ? (
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm"><span className="text-xs text-slate-400">สมาชิกทั้งหมด</span><div className="text-2xl font-bold text-blue-950 mt-1">{stats.total}</div></div>
+                <div className="bg-white p-4 rounded-xl border border-emerald-200 bg-emerald-50/40 shadow-sm"><span className="text-xs text-emerald-700">สมาชิกปัจจุบัน</span><div className="text-2xl font-bold text-emerald-700 mt-1">{stats.active}</div></div>
+                <div className="bg-white p-4 rounded-xl border border-blue-200 bg-blue-50/40 shadow-sm"><span className="text-xs text-blue-700">ชำระค่าสมาชิกแล้ว</span><div className="text-2xl font-bold text-blue-700 mt-1">{stats.paid}</div></div>
+                <div className="bg-white p-4 rounded-xl border border-indigo-200 bg-indigo-50/40 shadow-sm"><span className="text-xs text-indigo-700">TCC Connect</span><div className="text-2xl font-bold text-indigo-700 mt-1">{stats.tcc}</div></div>
+                <div className="bg-white p-4 rounded-xl border border-amber-200 bg-amber-50/40 shadow-sm"><span className="text-xs text-amber-700">ป้ายของดี</span><div className="text-2xl font-bold text-amber-700 mt-1">{stats.goodness}</div></div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {/* Search & Filters */}
+                <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-3">
+                  <div className="flex flex-col sm:flex-row gap-3">
+                    <input type="text" placeholder="🔍 ค้นหาชื่อผู้ประกอบการ, ร้านค้า, เบอร์โทร, ID LINE..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-800" />
+                    {(searchQuery || filterDistrict || filterType || filterStatus || filterPayment || filterTcc || filterGoodness) && (
+                      <button onClick={() => { setSearchQuery(''); setFilterDistrict(''); setFilterType(''); setFilterStatus(''); setFilterPayment(''); setFilterTcc(''); setFilterGoodness(''); }} className="shrink-0 text-xs text-rose-600 bg-rose-50 border border-rose-200 px-3 py-2 rounded-lg font-medium">ล้างตัวกรอง</button>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2 text-xs">
+                    <select value={filterDistrict} onChange={e => setFilterDistrict(e.target.value)} className="p-1.5 border border-slate-300 rounded bg-white"><option value="">-- อำเภอ --</option>{KALASIN_DISTRICTS.map(d => <option key={d} value={d}>{d}</option>)}</select>
+                    <select value={filterType} onChange={e => setFilterType(e.target.value)} className="p-1.5 border border-slate-300 rounded bg-white"><option value="">-- ประเภทธุรกิจ --</option>{BUSINESS_TYPES.map(t => <option key={t} value={t}>{t}</option>)}</select>
+                    <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} className="p-1.5 border border-slate-300 rounded bg-white"><option value="">-- สถานะ --</option><option value="เป็นสมาชิก">เป็นสมาชิก</option><option value="ไม่ต่อสมาชิก">ไม่ต่อสมาชิก</option></select>
+                    <select value={filterPayment} onChange={e => setFilterPayment(e.target.value)} className="p-1.5 border border-slate-300 rounded bg-white"><option value="">-- การชำระเงิน --</option><option value="ชำระค่าสมาชิกแล้ว">ชำระแล้ว</option><option value="ยังไม่ชำระ">ยังไม่ชำระ</option></select>
+                    <select value={filterTcc} onChange={e => setFilterTcc(e.target.value)} className="p-1.5 border border-slate-300 rounded bg-white"><option value="">-- TCC Connect --</option><option value="YES">YES</option><option value="NO">NO</option></select>
+                    <select value={filterGoodness} onChange={e => setFilterGoodness(e.target.value)} className="p-1.5 border border-slate-300 rounded bg-white"><option value="">-- ป้ายของดี --</option><option value="ได้รับ">ได้รับ</option><option value="ไม่ได้รับ">ไม่ได้รับ</option></select>
+                  </div>
+                </div>
+
+                {/* Table */}
+                <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead>
+                        <tr className="bg-blue-950 text-white font-semibold">
+                          <th className="p-3 text-center">รูป</th>
+                          <th className="p-3">ผู้ประกอบการ / กิจการ</th>
+                          <th className="p-3">ที่อยู่ & อำเภอ</th>
+                          <th className="p-3">ติดต่อ</th>
+                          <th className="p-3 text-center">สถานะ</th>
+                          <th className="p-3 text-center">ชำระเงิน</th>
+                          <th className="p-3 text-center">TCC</th>
+                          <th className="p-3 text-center">ป้ายของดี</th>
+                          <th className="p-3 text-center w-24">จัดการ</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {filtered.length === 0 ? (
+                          <tr><td colSpan="9" className="p-8 text-center text-slate-400">ไม่พบข้อมูลสมาชิกในระบบ</td></tr>
+                        ) : (
+                          filtered.map(m => (
+                            <tr key={m.id} className="hover:bg-slate-50">
+                              <td className="p-2 text-center">
+                                <div className="w-8 h-8 rounded-full bg-slate-100 mx-auto overflow-hidden border border-slate-200">
+                                  {m.entrepreneurPhoto ? <img src={m.entrepreneurPhoto} className="w-full h-full object-cover" /> : <span className="text-[10px] leading-8 text-slate-400">👤</span>}
+                                </div>
+                              </td>
+                              <td className="p-3">
+                                <div className="font-bold text-slate-900">{m.name}</div>
+                                <div className="text-blue-800 font-medium">{m.businessName}</div>
+                                <span className="inline-block bg-slate-100 px-1.5 py-0.2 rounded text-[10px] text-slate-500 mt-0.5">{m.businessType}</span>
+                              </td>
+                              <td className="p-3">
+                                <div>{m.address}</div>
+                                <div className="font-bold text-blue-900 mt-0.5">อ.{m.district}</div>
+                                {m.googleMapUrl && <a href={m.googleMapUrl} target="_blank" className="text-[10px] text-emerald-700 underline block mt-0.5">📍 ดูแผนที่</a>}
+                              </td>
+                              <td className="p-3">
+                                <div>📞 {m.phone || '-'}</div>
+                                {m.lineId && <div className="text-emerald-700 font-semibold mt-0.5">LINE: {m.lineId}</div>}
+                              </td>
+                              <td className="p-3 text-center">
+                                <span className={`px-2 py-0.5 rounded-full font-bold ${m.status === 'เป็นสมาชิก' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}`}>{m.status}</span>
+                              </td>
+                              <td className="p-3 text-center">
+                                <span className={`px-2 py-0.5 rounded-full font-medium ${m.paymentStatus === 'ชำระค่าสมาชิกแล้ว' ? 'bg-blue-100 text-blue-800' : 'bg-amber-100 text-amber-800'}`}>{m.paymentStatus}</span>
+                              </td>
+                              <td className="p-3 text-center font-bold text-indigo-700">{m.tccConnect}</td>
+                              <td className="p-3 text-center font-medium">{m.goodnessSign}</td>
+                              <td className="p-3 text-center">
+                                <div className="flex justify-center gap-1">
+                                  <button onClick={() => setViewingMember(m)} className="p-1 text-blue-700 hover:bg-blue-100 rounded" title="ดูบัตร">👁️</button>
+                                  <button onClick={() => executeAdminProtected(() => { setEditingMember(m); setFormData({ ...m }); setIsFormOpen(true); })} className="p-1 text-amber-600 hover:bg-amber-100 rounded" title="แก้ไข">✏️</button>
+                                  <button onClick={() => handleDelete(m.id, m.name)} className="p-1 text-rose-600 hover:bg-rose-100 rounded" title="ลบ">🗑️</button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
+          </main>
+
+          {/* Form Modal */}
+          {isFormOpen && (
+            <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+              <div className="bg-white rounded-2xl max-w-xl w-full max-h-[90vh] flex flex-col overflow-hidden shadow-2xl border border-slate-200">
+                <div className="bg-gradient-to-r from-blue-950 to-indigo-950 p-4 text-white font-bold flex justify-between">
+                  <span>{editingMember ? 'แก้ไขข้อมูลสมาชิก' : 'เพิ่มสมาชิกใหม่'}</span>
+                  <button onClick={() => setIsFormOpen(false)}>✕</button>
+                </div>
+                <form onSubmit={handleSave} className="p-5 overflow-y-auto space-y-3 text-xs flex-1">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="font-bold block mb-1">1. ชื่อ-นามสกุล *</label>
+                      <input type="text" required value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} className="w-full p-2 border rounded" />
+                    </div>
+                    <div>
+                      <label className="font-bold block mb-1">2. ชื่อกิจการ *</label>
+                      <input type="text" required value={formData.businessName} onChange={e => setFormData({ ...formData, businessName: e.target.value })} className="w-full p-2 border rounded" />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="font-bold block mb-1">ประเภทกิจการ</label>
+                      <select value={formData.businessType} onChange={e => setFormData({ ...formData, businessType: e.target.value })} className="w-full p-2 border rounded bg-white">
+                        {BUSINESS_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="font-bold block mb-1 text-blue-900">3. อำเภอ (18 อำเภอ) *</label>
+                      <select value={formData.district} onChange={e => setFormData({ ...formData, district: e.target.value })} className="w-full p-2 border rounded bg-white font-bold text-blue-950">
+                        {KALASIN_DISTRICTS.map(d => <option key={d} value={d}>อำเภอ {d}</option>)}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="font-bold block mb-1">ที่อยู่สถานประกอบการ</label>
+                    <textarea rows="2" value={formData.address} onChange={e => setFormData({ ...formData, address: e.target.value })} className="w-full p-2 border rounded" />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="font-bold block mb-1">4. เบอร์โทร</label>
+                      <input type="text" value={formData.phone} onChange={e => setFormData({ ...formData, phone: e.target.value })} className="w-full p-2 border rounded" />
+                    </div>
+                    <div>
+                      <label className="font-bold block mb-1">5. ID LINE</label>
+                      <input type="text" value={formData.lineId} onChange={e => setFormData({ ...formData, lineId: e.target.value })} className="w-full p-2 border rounded" />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="font-bold block mb-1">พิกัด GPS / ลิงก์ Google Maps</label>
+                    <input type="url" placeholder="https://maps.google.com/?q=..." value={formData.googleMapUrl} onChange={e => setFormData({ ...formData, googleMapUrl: e.target.value })} className="w-full p-2 border rounded font-mono text-[11px]" />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3 pt-2 border-t">
+                    <div>
+                      <label className="font-bold block mb-1">6. สถานะ</label>
+                      <select value={formData.status} onChange={e => setFormData({ ...formData, status: e.target.value })} className="w-full p-2 border rounded bg-white">
+                        <option value="เป็นสมาชิก">เป็นสมาชิก</option><option value="ไม่ต่อสมาชิก">ไม่ต่อสมาชิก</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="font-bold block mb-1">7. การชำระเงิน</label>
+                      <select value={formData.paymentStatus} onChange={e => setFormData({ ...formData, paymentStatus: e.target.value })} className="w-full p-2 border rounded bg-white">
+                        <option value="ชำระค่าสมาชิกแล้ว">ชำระแล้ว</option><option value="ยังไม่ชำระ">ยังไม่ชำระ</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="font-bold block mb-1">8. TCC Connect</label>
+                      <select value={formData.tccConnect} onChange={e => setFormData({ ...formData, tccConnect: e.target.value })} className="w-full p-2 border rounded bg-white">
+                        <option value="YES">YES</option><option value="NO">NO</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="font-bold block mb-1">9. ป้ายของดี</label>
+                      <select value={formData.goodnessSign} onChange={e => setFormData({ ...formData, goodnessSign: e.target.value })} className="w-full p-2 border rounded bg-white">
+                        <option value="ได้รับ">ได้รับ</option><option value="ไม่ได้รับ">ไม่ได้รับ</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Photo Uploads */}
+                  <div className="grid grid-cols-2 gap-3 pt-2 border-t">
+                    <div className="p-3 border border-dashed rounded text-center">
+                      <span className="block font-semibold mb-1">รูปผู้ประกอบการ</span>
+                      {formData.entrepreneurPhoto ? (
+                        <div className="relative w-16 h-16 mx-auto"><img src={formData.entrepreneurPhoto} className="w-full h-full object-cover rounded" /><button type="button" onClick={() => setFormData({ ...formData, entrepreneurPhoto: '' })} className="absolute -top-1 -right-1 bg-rose-600 text-white rounded-full px-1 text-[10px]">✕</button></div>
+                      ) : (
+                        <input type="file" accept="image/*" onChange={async e => { if (e.target.files[0]) { const b64 = await compressImage(e.target.files[0]); setFormData({ ...formData, entrepreneurPhoto: b64 }); } }} />
+                      )}
+                    </div>
+                    <div className="p-3 border border-dashed rounded text-center">
+                      <span className="block font-semibold mb-1">รูปสถานประกอบการ</span>
+                      {formData.businessPhoto ? (
+                        <div className="relative w-16 h-16 mx-auto"><img src={formData.businessPhoto} className="w-full h-full object-cover rounded" /><button type="button" onClick={() => setFormData({ ...formData, businessPhoto: '' })} className="absolute -top-1 -right-1 bg-rose-600 text-white rounded-full px-1 text-[10px]">✕</button></div>
+                      ) : (
+                        <input type="file" accept="image/*" onChange={async e => { if (e.target.files[0]) { const b64 = await compressImage(e.target.files[0]); setFormData({ ...formData, businessPhoto: b64 }); } }} />
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="pt-3 border-t flex justify-end gap-2">
+                    <button type="button" onClick={() => setIsFormOpen(false)} className="px-4 py-2 border rounded">ยกเลิก</button>
+                    <button type="submit" className="px-5 py-2 bg-blue-950 text-white font-bold rounded shadow">บันทึกข้อมูล</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* Member Card Modal (Landscape) */}
+          {viewingMember && (
+            <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+              <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden shadow-2xl">
+                <div className="bg-gradient-to-r from-blue-950 to-indigo-950 p-4 text-white font-bold flex justify-between">
+                  <span>บัตรประจำตัวสมาชิกหอการค้า</span>
+                  <button onClick={() => setViewingMember(null)}>✕</button>
+                </div>
+                <div className="p-6 bg-slate-50 overflow-y-auto flex-1">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* Card */}
+                    <div className="bg-gradient-to-br from-blue-900 via-blue-950 to-indigo-950 text-white p-5 rounded-xl border-2 border-amber-400 shadow-md">
+                      <div className="flex justify-between items-center border-b border-blue-800 pb-2 mb-3">
+                        <div className="text-xs font-bold text-amber-300">หอการค้าจังหวัดกาฬสินธุ์</div>
+                        <span className="text-[10px] bg-amber-400 text-blue-950 font-bold px-2 py-0.5 rounded">MEMBER</span>
+                      </div>
+                      <div className="flex gap-3 items-center">
+                        <div className="w-16 h-20 bg-white/10 border border-amber-400/80 rounded overflow-hidden flex items-center justify-center shrink-0">
+                          {viewingMember.entrepreneurPhoto ? <img src={viewingMember.entrepreneurPhoto} className="w-full h-full object-cover" /> : <span className="text-2xl">👤</span>}
+                        </div>
+                        <div className="min-w-0">
+                          <h4 className="font-bold text-sm truncate">{viewingMember.name}</h4>
+                          <p className="text-xs text-amber-200 truncate">{viewingMember.businessName}</p>
+                          <p className="text-[11px] text-blue-200 mt-1">อำเภอ{viewingMember.district}</p>
+                        </div>
+                      </div>
+                      <div className="mt-3 pt-2 border-t border-blue-800 grid grid-cols-2 gap-2 text-[10px]">
+                        <div>สถานะ: <strong className="text-emerald-400">{viewingMember.status}</strong></div>
+                        <div>TCC Connect: <strong className="text-amber-300">{viewingMember.tccConnect}</strong></div>
+                      </div>
+                    </div>
+
+                    {/* Details */}
+                    <div className="space-y-2 text-xs">
+                      {viewingMember.businessPhoto && (
+                        <div className="h-24 w-full rounded border overflow-hidden bg-white"><img src={viewingMember.businessPhoto} className="w-full h-full object-cover" /></div>
+                      )}
+                      <div className="bg-white p-3 rounded border space-y-1">
+                        <div><strong>ที่อยู่:</strong> {viewingMember.address}</div>
+                        <div><strong>เบอร์โทร:</strong> {viewingMember.phone || '-'}</div>
+                        <div><strong>LINE ID:</strong> {viewingMember.lineId || '-'}</div>
+                        <div><strong>ค่าสมาชิก:</strong> <span className="text-blue-700 font-bold">{viewingMember.paymentStatus}</span></div>
+                        <div><strong>ป้ายของดี:</strong> <span className="text-amber-700 font-bold">{viewingMember.goodnessSign}</span></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div className="p-3 bg-slate-100 border-t flex justify-end">
+                  <button onClick={() => setViewingMember(null)} className="px-5 py-1.5 bg-slate-800 text-white rounded text-xs font-bold">ปิดหน้าต่าง</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Admin Passcode Modal */}
+          {isAdminModalOpen && (
+            <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4">
+              <div className="bg-white rounded-2xl max-w-xs w-full p-5 shadow-2xl border text-center space-y-3">
+                <div className="text-2xl">🔐</div>
+                <h4 className="font-bold text-sm text-blue-950">ยืนยันสิทธิ์ Admin</h4>
+                <p className="text-xs text-slate-500">กรุณากรอกรหัสผ่านเพื่อจัดการข้อมูลสมาชิก</p>
+                <form onSubmit={handleAdminLogin} className="space-y-3">
+                  <input type="password" autoFocus placeholder="รหัสผ่าน (เริ่มต้น: 1234)" value={adminPasscode} onChange={e => setAdminPasscode(e.target.value)} className="w-full p-2 border rounded text-center text-sm font-bold tracking-widest" />
+                  {adminError && <p className="text-rose-600 text-xs">{adminError}</p>}
+                  <div className="flex gap-2">
+                    <button type="button" onClick={() => setIsAdminModalOpen(false)} className="flex-1 py-1.5 border rounded text-xs">ยกเลิก</button>
+                    <button type="submit" className="flex-1 py-1.5 bg-blue-950 text-white font-bold rounded text-xs">เข้าสู่ระบบ</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* Print / Report Modal */}
+          {isPrintModalOpen && (
+            <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4">
+              <div className="bg-white rounded-2xl max-w-4xl w-full max-h-[95vh] flex flex-col overflow-hidden shadow-2xl">
+                <div className="p-4 bg-slate-100 border-b flex justify-between items-center print:hidden">
+                  <span className="text-xs font-bold">พิมพ์รายงาน ({filtered.length} รายการ)</span>
+                  <div className="flex gap-2">
+                    <button onClick={() => window.print()} className="bg-blue-950 text-white px-4 py-1.5 rounded text-xs font-bold">🖨️ สั่งพิมพ์ / PDF</button>
+                    <button onClick={() => setIsPrintModalOpen(false)} className="px-3 py-1.5 border rounded text-xs">ปิด</button>
+                  </div>
+                </div>
+                <div className="p-8 overflow-y-auto flex-1 print:p-0">
+                  <div className="text-center border-b-2 border-blue-950 pb-4 mb-4">
+                    <h2 className="text-xl font-bold text-blue-950">หอการค้าจังหวัดกาฬสินธุ์</h2>
+                    <h3 className="text-sm font-bold">รายงานข้อมูลสมาชิกและสถานะการต่ออายุ</h3>
+                    <p className="text-[11px] text-slate-500 mt-1">วันที่พิมพ์: {new Date().toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
+                  </div>
+                  <table className="w-full text-left text-xs border border-slate-300">
+                    <thead>
+                      <tr className="bg-blue-950 text-white">
+                        <th className="p-2 border">#</th><th className="p-2 border">ชื่อ-นามสกุล</th><th className="p-2 border">ชื่อกิจการ</th><th className="p-2 border">อำเภอ</th><th className="p-2 border">เบอร์ติดต่อ</th><th className="p-2 border">สถานะ</th><th className="p-2 border">ชำระเงิน</th><th className="p-2 border">TCC</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filtered.map((m, i) => (
+                        <tr key={m.id} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
+                          <td className="p-2 border text-center">{i + 1}</td>
+                          <td className="p-2 border font-bold">{m.name}</td>
+                          <td className="p-2 border">{m.businessName}</td>
+                          <td className="p-2 border font-bold">{m.district}</td>
+                          <td className="p-2 border">{m.phone || '-'}</td>
+                          <td className="p-2 border text-center">{m.status}</td>
+                          <td className="p-2 border text-center">{m.paymentStatus}</td>
+                          <td className="p-2 border text-center font-bold">{m.tccConnect}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Footer */}
+          <footer className="bg-blue-950 text-blue-300 text-xs py-3 border-t border-blue-900 print:hidden">
+            <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row justify-between items-center gap-2">
+              <span>&copy; {new Date().getFullYear()} ระบบบริหารจัดการสมาชิก หอการค้าจังหวัดกาฬสินธุ์</span>
+              <span className="text-amber-400 font-medium">พัฒนาระบบโดย น้าราม [เลขาธิการหอการค้าจังหวัดกาฬสินธุ์]</span>
+            </div>
+          </footer>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
