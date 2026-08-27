@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ระบบฐานข้อมูลสมาชิก หอการค้าจังหวัดกาฬสินธุ์</title>
   
-  <!-- Tailwind CSS CDN -->
+  <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
   
   <!-- Google Fonts Sarabun -->
@@ -13,7 +13,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 
-  <!-- React 18 & Babel Scripts -->
+  <!-- React & Babel Scripts -->
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -31,11 +31,11 @@
 <body class="bg-slate-50 text-slate-800 antialiased">
   <div id="root"></div>
 
-  <!-- Main Application Script (ES Module with Babel) -->
+  <!-- Main Application Script (ES Module) -->
   <script type="text/babel" data-type="module">
     import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
     import { getAuth, signInAnonymously, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js';
-    import { getFirestore, collection, doc, onSnapshot, addDoc, updateDoc, deleteDoc } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
+    import { getFirestore, collection, doc, onSnapshot, addDoc, updateDoc, deleteDoc, setDoc } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
 
     // Firebase Config จากโปรเจกต์ของน้าราม
     const firebaseConfig = {
@@ -52,7 +52,6 @@
     const auth = getAuth(app);
     const db = getFirestore(app);
 
-    // รายชื่อ 18 อำเภอ ในจังหวัดกาฬสินธุ์
     const KALASIN_DISTRICTS = [
       "เมืองกาฬสินธุ์", "กมลาไสย", "ยางตลาด", "ห้วยเม็ก", "สหัสขันธ์", 
       "สมเด็จ", "กุฉินารายณ์", "ท่าคันโท", "เขาวง", "ห้วยผึ้ง", 
@@ -60,7 +59,6 @@
       "ฆ้องชัย", "สามชัย", "นาคู"
     ];
 
-    // ประเภทธุรกิจ
     const BUSINESS_TYPES = [
       "ผู้ประกอบการขนาดเล็ก",
       "SME",
@@ -69,7 +67,6 @@
       "บริการและท่องเที่ยว"
     ];
 
-    // ระบบบีบอัดรูปภาพ
     const compressImage = (file, maxWidth = 500, quality = 0.75) => {
       return new Promise((resolve, reject) => {
         const reader = new FileReader();
@@ -103,13 +100,23 @@
       const [loading, setLoading] = React.useState(true);
       const [customLogo, setCustomLogo] = React.useState(null);
 
-      // Admin State
+      // Admin State & Dynamic Passcode from Firestore
       const [isAdmin, setIsAdmin] = React.useState(false);
       const [isAdminModalOpen, setIsAdminModalOpen] = React.useState(false);
+      const [adminPasscodeSecret, setAdminPasscodeSecret] = React.useState('1234'); // ค่าเริ่มต้น 1234
       const [adminPasscode, setAdminPasscode] = React.useState('');
       const [adminError, setAdminError] = React.useState('');
       const [pendingAction, setPendingAction] = React.useState(null);
-      const ADMIN_SECRET = '1234';
+
+      // Change Password Modal State
+      const [isChangePassModalOpen, setIsChangePassModalOpen] = React.useState(false);
+      const [oldPass, setOldPass] = React.useState('');
+      const [newPass, setNewPass] = React.useState('');
+      const [confirmPass, setConfirmPass] = React.useState('');
+      const [passChangeError, setPassChangeError] = React.useState('');
+
+      // Custom Delete Confirm Modal State
+      const [deleteTarget, setDeleteTarget] = React.useState(null);
 
       // Navigation & Filters
       const [activeTab, setActiveTab] = React.useState('members');
@@ -146,7 +153,7 @@
 
       const handleAdminLogin = (e) => {
         e.preventDefault();
-        if (adminPasscode === ADMIN_SECRET) {
+        if (adminPasscode === adminPasscodeSecret) {
           setIsAdmin(true);
           setIsAdminModalOpen(false);
           showToast("เข้าสู่ระบบ Admin สำเร็จ");
@@ -155,7 +162,40 @@
             setPendingAction(null);
           }
         } else {
-          setAdminError('รหัสผ่าน Admin ไม่ถูกต้อง (รหัสเริ่มต้น: 1234)');
+          setAdminError('รหัสผ่าน Admin ไม่ถูกต้อง');
+        }
+      };
+
+      const handleChangeAdminPasscode = async (e) => {
+        e.preventDefault();
+        if (oldPass !== adminPasscodeSecret) {
+          setPassChangeError('รหัสผ่านเดิมไม่ถูกต้อง');
+          return;
+        }
+        if (!newPass || newPass.trim().length < 4) {
+          setPassChangeError('รหัสผ่านใหม่ต้องมีอย่างน้อย 4 ตัวอักษร');
+          return;
+        }
+        if (newPass !== confirmPass) {
+          setPassChangeError('รหัสผ่านใหม่และการยืนยันไม่ตรงกัน');
+          return;
+        }
+
+        try {
+          const configRef = doc(db, 'chamber_settings', 'admin_config');
+          await setDoc(configRef, {
+            passcode: newPass.trim(),
+            updatedAt: new Date().toISOString()
+          });
+          showToast("เปลี่ยนรหัสผ่าน Admin เรียบร้อยแล้ว");
+          setIsChangePassModalOpen(false);
+          setOldPass('');
+          setNewPass('');
+          setConfirmPass('');
+          setPassChangeError('');
+        } catch (err) {
+          console.error("Change pass error:", err);
+          showToast("ไม่สามารถบันทึกรหัสผ่านใหม่ได้", "error");
         }
       };
 
@@ -166,8 +206,26 @@
 
       React.useEffect(() => {
         if (!user) return;
+
+        // ดึงรหัสผ่าน Admin จาก Cloud Firestore
+        const configRef = doc(db, 'chamber_settings', 'admin_config');
+        const unsubConfig = onSnapshot(configRef, (docSnap) => {
+          if (docSnap.exists() && docSnap.data().passcode) {
+            setAdminPasscodeSecret(docSnap.data().passcode);
+          }
+        }, (err) => console.error("Error reading admin config:", err));
+
+        // ดึงโลโก้หอการค้าแบบ Real-time จาก Cloud Firestore
+        const logoRef = doc(db, 'chamber_settings', 'app_logo');
+        const unsubLogo = onSnapshot(logoRef, (docSnap) => {
+          if (docSnap.exists() && docSnap.data().logo) {
+            setCustomLogo(docSnap.data().logo);
+          }
+        }, (err) => console.error("Error reading logo:", err));
+
+        // ดึงข้อมูลสมาชิก Real-time
         const membersRef = collection(db, 'chamber_members');
-        return onSnapshot(membersRef, (snapshot) => {
+        const unsubMembers = onSnapshot(membersRef, (snapshot) => {
           const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
           setMembers(data);
           setLoading(false);
@@ -176,7 +234,34 @@
           showToast("ไม่สามารถดึงข้อมูลได้ กรุณาตรวจ Firestore Rules", "error");
           setLoading(false);
         });
+
+        return () => {
+          unsubConfig();
+          unsubLogo();
+          unsubMembers();
+        };
       }, [user]);
+
+      const handleLogoChange = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        executeAdminProtected(async () => {
+          try {
+            showToast("กำลังบันทึกโลโก้ลง Cloud...");
+            const b64 = await compressImage(file, 250, 0.85);
+            const logoRef = doc(db, 'chamber_settings', 'app_logo');
+            await setDoc(logoRef, {
+              logo: b64,
+              updatedAt: new Date().toISOString()
+            }, { merge: true });
+            showToast("บันทึกโลโก้หอการค้าถาวรเรียบร้อยแล้ว");
+          } catch (err) {
+            console.error("Logo upload error:", err);
+            showToast("ไม่สามารถบันทึกโลโก้ลง Cloud ได้", "error");
+          }
+        });
+      };
 
       const emptyForm = {
         name: '', businessName: '', businessType: 'SME',
@@ -213,16 +298,22 @@
         }
       };
 
-      const handleDelete = (id, name) => {
-        executeAdminProtected(async () => {
-          if (!window.confirm(`ต้องการลบข้อมูลสมาชิก: ${name}?`)) return;
-          try {
-            await deleteDoc(doc(db, 'chamber_members', id));
-            showToast("ลบข้อมูลสำเร็จ");
-          } catch (err) {
-            showToast("ลบข้อมูลไม่สำเร็จ", "error");
-          }
+      const confirmDelete = (member) => {
+        executeAdminProtected(() => {
+          setDeleteTarget(member);
         });
+      };
+
+      const handleConfirmDeleteExecute = async () => {
+        if (!deleteTarget) return;
+        try {
+          await deleteDoc(doc(db, 'chamber_members', deleteTarget.id));
+          showToast("ลบข้อมูลสำเร็จ");
+          setDeleteTarget(null);
+        } catch (err) {
+          showToast("ลบข้อมูลไม่สำเร็จ", "error");
+          setDeleteTarget(null);
+        }
       };
 
       const filtered = React.useMemo(() => {
@@ -267,7 +358,7 @@
 
       return (
         <div className="min-h-screen flex flex-col">
-          {/* Toast */}
+          {/* Toast Notification */}
           {toast && (
             <div className={`fixed top-4 right-4 z-50 px-4 py-2.5 rounded-lg text-white font-medium shadow-xl text-sm ${toast.type === 'error' ? 'bg-rose-600' : toast.type === 'warning' ? 'bg-amber-500' : 'bg-emerald-600'}`}>
               {toast.text}
@@ -289,12 +380,7 @@
                       </div>
                     )}
                   </label>
-                  <input id="logo-up" type="file" accept="image/*" className="hidden" onChange={async (e) => {
-                    if (e.target.files[0]) {
-                      const b64 = await compressImage(e.target.files[0], 250);
-                      setCustomLogo(b64);
-                    }
-                  }} />
+                  <input id="logo-up" type="file" accept="image/*" className="hidden" onChange={handleLogoChange} />
 
                   <div>
                     <h1 className="text-lg md:text-xl font-bold text-white leading-tight">
@@ -311,10 +397,15 @@
 
                 <div className="flex items-center gap-2 flex-wrap justify-end w-full md:w-auto">
                   {isAdmin ? (
-                    <span className="bg-emerald-900/90 border border-emerald-400 text-emerald-200 text-xs px-2.5 py-1.5 rounded-lg flex items-center gap-1 font-semibold">
-                      โหมด Admin
-                      <button onClick={() => { setIsAdmin(false); showToast("ออกจากโหมด Admin", "warning"); }} className="ml-1 bg-emerald-700 text-white px-1.5 py-0.5 rounded text-[10px]">ออก</button>
-                    </span>
+                    <div className="bg-emerald-900/90 border border-emerald-400 text-emerald-200 text-xs px-2.5 py-1.5 rounded-lg flex items-center gap-2 font-semibold">
+                      <span>🔑 โหมด Admin</span>
+                      <button onClick={() => { setOldPass(''); setNewPass(''); setConfirmPass(''); setPassChangeError(''); setIsChangePassModalOpen(true); }} className="bg-amber-400 hover:bg-amber-300 text-blue-950 px-2 py-0.5 rounded text-[10px] font-bold">
+                        ⚙️ ตั้งรหัสใหม่
+                      </button>
+                      <button onClick={() => { setIsAdmin(false); showToast("ออกจากโหมด Admin", "warning"); }} className="bg-emerald-700 hover:bg-emerald-600 text-white px-1.5 py-0.5 rounded text-[10px]">
+                        ออก
+                      </button>
+                    </div>
                   ) : (
                     <button onClick={() => executeAdminProtected(() => {})} className="bg-blue-900 hover:bg-blue-800 text-blue-200 text-xs px-3 py-2 rounded-lg border border-blue-700">
                       🔒 เข้าสู่ระบบ Admin
@@ -346,7 +437,6 @@
             </div>
           </header>
 
-          {/* Main Container */}
           <main className="max-w-7xl mx-auto px-4 py-6 flex-1 w-full">
             {loading ? (
               <div className="text-center py-20 text-slate-500 font-medium">กำลังโหลดข้อมูลจาก Cloud Firebase...</div>
@@ -379,7 +469,6 @@
                   </div>
                 </div>
 
-                {/* Table */}
                 <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
                   <div className="overflow-x-auto">
                     <table className="w-full text-left text-xs">
@@ -431,9 +520,16 @@
                               <td className="p-3 text-center font-medium">{m.goodnessSign}</td>
                               <td className="p-3 text-center">
                                 <div className="flex justify-center gap-1">
+                                  {/* สมาชิกทั่วไปเห็นเฉพาะปุ่มดูบัตร */}
                                   <button onClick={() => setViewingMember(m)} className="p-1 text-blue-700 hover:bg-blue-100 rounded" title="ดูบัตร">👁️</button>
-                                  <button onClick={() => executeAdminProtected(() => { setEditingMember(m); setFormData({ ...m }); setIsFormOpen(true); })} className="p-1 text-amber-600 hover:bg-amber-100 rounded" title="แก้ไข">✏️</button>
-                                  <button onClick={() => handleDelete(m.id, m.name)} className="p-1 text-rose-600 hover:bg-rose-100 rounded" title="ลบ">🗑️</button>
+                                  
+                                  {/* เฉพาะ Admin เท่านั้นจึงจะเห็นปุ่มแก้ไขและปุ่มลบ */}
+                                  {isAdmin && (
+                                    <>
+                                      <button onClick={() => { setEditingMember(m); setFormData({ ...m }); setIsFormOpen(true); }} className="p-1 text-amber-600 hover:bg-amber-100 rounded" title="แก้ไข">✏️</button>
+                                      <button onClick={() => confirmDelete(m)} className="p-1 text-rose-600 hover:bg-rose-100 rounded" title="ลบ">🗑️</button>
+                                    </>
+                                  )}
                                 </div>
                               </td>
                             </tr>
@@ -447,7 +543,6 @@
             )}
           </main>
 
-          {/* Form Modal */}
           {isFormOpen && (
             <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
               <div className="bg-white rounded-2xl max-w-xl w-full max-h-[90vh] flex flex-col overflow-hidden shadow-2xl border border-slate-200">
@@ -559,7 +654,6 @@
             </div>
           )}
 
-          {/* Member Card Modal (Landscape) */}
           {viewingMember && (
             <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
               <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden shadow-2xl">
@@ -613,7 +707,6 @@
             </div>
           )}
 
-          {/* Admin Passcode Modal */}
           {isAdminModalOpen && (
             <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4">
               <div className="bg-white rounded-2xl max-w-xs w-full p-5 shadow-2xl border text-center space-y-3">
@@ -621,7 +714,7 @@
                 <h4 className="font-bold text-sm text-blue-950">ยืนยันสิทธิ์ Admin</h4>
                 <p className="text-xs text-slate-500">กรุณากรอกรหัสผ่านเพื่อจัดการข้อมูลสมาชิก</p>
                 <form onSubmit={handleAdminLogin} className="space-y-3">
-                  <input type="password" autoFocus placeholder="รหัสผ่าน (เริ่มต้น: 1234)" value={adminPasscode} onChange={e => setAdminPasscode(e.target.value)} className="w-full p-2 border rounded text-center text-sm font-bold tracking-widest" />
+                  <input type="password" autoFocus placeholder="รหัสผ่าน Admin" value={adminPasscode} onChange={e => setAdminPasscode(e.target.value)} className="w-full p-2 border rounded text-center text-sm font-bold tracking-widest" />
                   {adminError && <p className="text-rose-600 text-xs">{adminError}</p>}
                   <div className="flex gap-2">
                     <button type="button" onClick={() => setIsAdminModalOpen(false)} className="flex-1 py-1.5 border rounded text-xs">ยกเลิก</button>
@@ -632,7 +725,52 @@
             </div>
           )}
 
-          {/* Print / Report Modal */}
+          {/* Change Admin Passcode Modal */}
+          {isChangePassModalOpen && (
+            <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4">
+              <div className="bg-white rounded-2xl max-w-xs w-full p-5 shadow-2xl border text-center space-y-3">
+                <div className="text-2xl">⚙️</div>
+                <h4 className="font-bold text-sm text-blue-950">ตั้งรหัสผ่าน Admin ใหม่</h4>
+                <form onSubmit={handleChangeAdminPasscode} className="space-y-2.5 text-left text-xs">
+                  <div>
+                    <label className="font-bold block mb-1">รหัสผ่านเดิม</label>
+                    <input type="password" required value={oldPass} onChange={e => setOldPass(e.target.value)} className="w-full p-2 border rounded text-center font-bold" />
+                  </div>
+                  <div>
+                    <label className="font-bold block mb-1">รหัสผ่านใหม่ (อย่างน้อย 4 ตัว)</label>
+                    <input type="password" required value={newPass} onChange={e => setNewPass(e.target.value)} className="w-full p-2 border rounded text-center font-bold" />
+                  </div>
+                  <div>
+                    <label className="font-bold block mb-1">ยืนยันรหัสผ่านใหม่</label>
+                    <input type="password" required value={confirmPass} onChange={e => setConfirmPass(e.target.value)} className="w-full p-2 border rounded text-center font-bold" />
+                  </div>
+
+                  {passChangeError && <p className="text-rose-600 text-xs text-center">{passChangeError}</p>}
+
+                  <div className="flex gap-2 pt-2">
+                    <button type="button" onClick={() => setIsChangePassModalOpen(false)} className="flex-1 py-1.5 border rounded text-xs">ยกเลิก</button>
+                    <button type="submit" className="flex-1 py-1.5 bg-amber-500 hover:bg-amber-400 text-blue-950 font-bold rounded text-xs">บันทึกรหัสใหม่</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* Delete Confirmation Modal */}
+          {deleteTarget && (
+            <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4">
+              <div className="bg-white rounded-2xl max-w-xs w-full p-5 shadow-2xl border text-center space-y-3">
+                <div className="text-3xl">🗑️</div>
+                <h4 className="font-bold text-sm text-blue-950">ยืนยันการลบสมาชิก</h4>
+                <p className="text-xs text-slate-600">คุณแน่ใจหรือไม่ว่าต้องการลบข้อมูลของ<br/><strong className="text-rose-600">{deleteTarget.name}</strong> ({deleteTarget.businessName})?</p>
+                <div className="flex gap-2 pt-2">
+                  <button onClick={() => setDeleteTarget(null)} className="flex-1 py-1.5 border rounded text-xs">ยกเลิก</button>
+                  <button onClick={handleConfirmDeleteExecute} className="flex-1 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded text-xs">ยืนยันลบข้อมูล</button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {isPrintModalOpen && (
             <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4">
               <div className="bg-white rounded-2xl max-w-4xl w-full max-h-[95vh] flex flex-col overflow-hidden shadow-2xl">
