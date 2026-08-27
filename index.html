@@ -38,7 +38,7 @@
     import { getAuth, signInAnonymously, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js';
     import { getFirestore, collection, doc, onSnapshot, addDoc, updateDoc, deleteDoc, setDoc } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
 
-    // Firebase Config จากโปรเจกต์ของน้าราม
+    // Firebase Config โปรเจกต์ my-rat-trap
     const firebaseConfig = {
       apiKey: "AIzaSyBrKnDDKxTAC9LguE1zWlBSTJoQAUXn3yM",
       authDomain: "my-rat-trap.firebaseapp.com",
@@ -101,10 +101,10 @@
       const [loading, setLoading] = React.useState(true);
       const [customLogo, setCustomLogo] = React.useState(null);
 
-      // Admin State & Dynamic Passcode from Firestore
+      // Admin State & Dynamic Passcode
       const [isAdmin, setIsAdmin] = React.useState(false);
       const [isAdminModalOpen, setIsAdminModalOpen] = React.useState(false);
-      const [adminPasscodeSecret, setAdminPasscodeSecret] = React.useState('1234'); // ค่าเริ่มต้น 1234
+      const [adminPasscodeSecret, setAdminPasscodeSecret] = React.useState('1234');
       const [adminPasscode, setAdminPasscode] = React.useState('');
       const [adminError, setAdminError] = React.useState('');
       const [pendingAction, setPendingAction] = React.useState(null);
@@ -134,7 +134,7 @@
       const [editingMember, setEditingMember] = React.useState(null);
       const [viewingMember, setViewingMember] = React.useState(null);
       const [isPrintModalOpen, setIsPrintModalOpen] = React.useState(false);
-      const [printMode, setPrintMode] = React.useState('detail'); // 'detail' (รายละเอียด+รูปภาพ) หรือ 'table' (ตารางสรุป)
+      const [printMode, setPrintMode] = React.useState('detail'); // 'detail' หรือ 'table'
       const [toast, setToast] = React.useState(null);
 
       const showToast = (text, type = 'success') => {
@@ -209,7 +209,7 @@
       React.useEffect(() => {
         if (!user) return;
 
-        // ดึงรหัสผ่าน Admin จาก Cloud Firestore
+        // ดึงรหัสผ่าน Admin จาก Firestore
         const configRef = doc(db, 'chamber_settings', 'admin_config');
         const unsubConfig = onSnapshot(configRef, (docSnap) => {
           if (docSnap.exists() && docSnap.data().passcode) {
@@ -217,7 +217,7 @@
           }
         }, (err) => console.error("Error reading admin config:", err));
 
-        // ดึงโลโก้หอการค้าแบบ Real-time จาก Cloud Firestore
+        // ดึงโลโก้หอการค้าถาวรจาก Firestore
         const logoRef = doc(db, 'chamber_settings', 'app_logo');
         const unsubLogo = onSnapshot(logoRef, (docSnap) => {
           if (docSnap.exists() && docSnap.data().logo) {
@@ -225,7 +225,7 @@
           }
         }, (err) => console.error("Error reading logo:", err));
 
-        // ดึงข้อมูลสมาชิก Real-time
+        // ดึงข้อมูลสมาชิกแบบ Real-time
         const membersRef = collection(db, 'chamber_members');
         const unsubMembers = onSnapshot(membersRef, (snapshot) => {
           const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -439,6 +439,7 @@
             </div>
           </header>
 
+          {}
           <main className="max-w-7xl mx-auto px-4 py-6 flex-1 w-full">
             {loading ? (
               <div className="text-center py-20 text-slate-500 font-medium">กำลังโหลดข้อมูลจาก Cloud Firebase...</div>
@@ -545,6 +546,7 @@
             )}
           </main>
 
+          {}
           {isFormOpen && (
             <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
               <div className="bg-white rounded-2xl max-w-xl w-full max-h-[90vh] flex flex-col overflow-hidden shadow-2xl border border-slate-200">
@@ -656,6 +658,7 @@
             </div>
           )}
 
+          {}
           {viewingMember && (
             <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
               <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden shadow-2xl">
@@ -690,6 +693,95 @@
                     {/* Details */}
                     <div className="space-y-2 text-xs">
                       {viewingMember.businessPhoto && (
+                        <div className="h-24 w-full rounded border overflow-hidden bg-white"><img src={viewingMember.businessPhoto} className="w-full h-full object-cover" /></div>
+                      )}
+                      <div className="bg-white p-3 rounded border space-y-1">
+                        <div><strong>ที่อยู่:</strong> {viewingMember.address}</div>
+                        <div><strong>เบอร์โทร:</strong> {viewingMember.phone || '-'}</div>
+                        <div><strong>LINE ID:</strong> {viewingMember.lineId || '-'}</div>
+                        <div><strong>ค่าสมาชิก:</strong> <span className="text-blue-700 font-bold">{viewingMember.paymentStatus}</span></div>
+                        <div><strong>ป้ายของดี:</strong> <span className="text-amber-700 font-bold">{viewingMember.goodnessSign}</span></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div className="p-3 bg-slate-100 border-t flex justify-end">
+                  <button onClick={() => setViewingMember(null)} className="px-5 py-1.5 bg-slate-800 text-white rounded text-xs font-bold">ปิดหน้าต่าง</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {}
+          {/* Admin Login Modal */}
+          {isAdminModalOpen && (
+            <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4">
+              <div className="bg-white rounded-2xl max-w-xs w-full p-5 shadow-2xl border text-center space-y-3">
+                <div className="text-2xl">🔐</div>
+                <h4 className="font-bold text-sm text-blue-950">ยืนยันสิทธิ์ Admin</h4>
+                <p className="text-xs text-slate-500">กรุณากรอกรหัสผ่านเพื่อจัดการข้อมูลสมาชิก</p>
+                <form onSubmit={handleAdminLogin} className="space-y-3">
+                  <input type="password" autoFocus placeholder="รหัสผ่าน Admin" value={adminPasscode} onChange={e => setAdminPasscode(e.target.value)} className="w-full p-2 border rounded text-center text-sm font-bold tracking-widest" />
+                  {adminError && <p className="text-rose-600 text-xs">{adminError}</p>}
+                  <div className="flex gap-2">
+                    <button type="button" onClick={() => setIsAdminModalOpen(false)} className="flex-1 py-1.5 border rounded text-xs">ยกเลิก</button>
+                    <button type="submit" className="flex-1 py-1.5 bg-blue-950 text-white font-bold rounded text-xs">เข้าสู่ระบบ</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* Change Admin Password Modal */}
+          {isChangePassModalOpen && (
+            <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4">
+              <div className="bg-white rounded-2xl max-w-sm w-full p-5 shadow-2xl border space-y-3">
+                <div className="text-center">
+                  <div className="text-2xl">⚙️</div>
+                  <h4 className="font-bold text-sm text-blue-950 mt-1">ตั้งรหัสผ่าน Admin ใหม่</h4>
+                  <p className="text-xs text-slate-500">รหัสใหม่จะถูกบันทึกลง Cloud ถาวร</p>
+                </div>
+                <form onSubmit={handleChangeAdminPasscode} className="space-y-3 text-xs">
+                  <div>
+                    <label className="font-bold block mb-1">รหัสผ่านเดิม</label>
+                    <input type="password" required value={oldPass} onChange={e => setOldPass(e.target.value)} className="w-full p-2 border rounded" />
+                  </div>
+                  <div>
+                    <label className="font-bold block mb-1">รหัสผ่านใหม่ (อย่างน้อย 4 ตัว)</label>
+                    <input type="password" required value={newPass} onChange={e => setNewPass(e.target.value)} className="w-full p-2 border rounded" />
+                  </div>
+                  <div>
+                    <label className="font-bold block mb-1">ยืนยันรหัสผ่านใหม่</label>
+                    <input type="password" required value={confirmPass} onChange={e => setConfirmPass(e.target.value)} className="w-full p-2 border rounded" />
+                  </div>
+                  {passChangeError && <p className="text-rose-600 text-[11px] font-semibold">{passChangeError}</p>}
+                  <div className="flex gap-2 pt-2">
+                    <button type="button" onClick={() => setIsChangePassModalOpen(false)} className="flex-1 py-2 border rounded">ยกเลิก</button>
+                    <button type="submit" className="flex-1 py-2 bg-blue-950 text-white font-bold rounded shadow">บันทึกรหัสใหม่</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* Custom Delete Confirmation Modal */}
+          {deleteTarget && (
+            <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4">
+              <div className="bg-white rounded-2xl max-w-xs w-full p-5 shadow-2xl border text-center space-y-3">
+                <div className="text-3xl">⚠️</div>
+                <h4 className="font-bold text-sm text-slate-900">ยืนยันการลบสมาชิก</h4>
+                <p className="text-xs text-slate-600">
+                  คุณต้องการลบข้อมูลสมาชิก <br/><strong className="text-rose-600">{deleteTarget.name}</strong> ({deleteTarget.businessName}) ใช่หรือไม่?
+                </p>
+                <div className="flex gap-2 pt-2">
+                  <button onClick={() => setDeleteTarget(null)} className="flex-1 py-1.5 border rounded text-xs">ยกเลิก</button>
+                  <button onClick={handleConfirmDeleteExecute} className="flex-1 py-1.5 bg-rose-600 text-white font-bold rounded text-xs shadow">ลบข้อมูล</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {}
           {/* Print / Report Modal */}
           {isPrintModalOpen && (
             <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4">
