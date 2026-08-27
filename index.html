@@ -18,7 +18,7 @@
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
-  <!-- Firebase Compat SDKs -->
+  <!-- Firebase Compat SDKs (เสถียรที่สุด 100% บน GitHub Pages) -->
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
@@ -102,7 +102,7 @@
       const [loading, setLoading] = React.useState(true);
       const [customLogo, setCustomLogo] = React.useState(null);
 
-      // Admin State & Dynamic Passcode
+      // Admin State & Dynamic Passcode Management
       const [isAdmin, setIsAdmin] = React.useState(false);
       const [isAdminModalOpen, setIsAdminModalOpen] = React.useState(false);
       const [adminPasscodeSecret, setAdminPasscodeSecret] = React.useState('1234');
@@ -1095,4 +1095,3 @@
   </script>
 </body>
 </html>
-
