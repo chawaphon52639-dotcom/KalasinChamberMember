@@ -126,6 +126,7 @@
       }
     ];
 
+    // Helper to compress image
     const compressImage = (file, maxWidth = 500, quality = 0.75) => {
       return new Promise((resolve, reject) => {
         const reader = new FileReader();
@@ -177,7 +178,7 @@
       // Custom Delete Confirm Modal State
       const [deleteTarget, setDeleteTarget] = React.useState(null);
 
-      // Quick Year Edit Modal State (For Admin to update last active year quickly)
+      // Quick Year Edit Modal State
       const [quickYearTarget, setQuickYearTarget] = React.useState(null);
       const [quickYearInput, setQuickYearInput] = React.useState('');
 
@@ -224,15 +225,16 @@
           setIsAdminModalOpen(false);
           showToast("เข้าสู่ระบบ Admin สำเร็จ");
           if (pendingAction) {
-            pendingAction();
+            const actionToRun = pendingAction;
             setPendingAction(null);
+            actionToRun();
           }
         } else {
           setAdminError('รหัสผ่าน Admin ไม่ถูกต้อง');
         }
       };
 
-      // ป้องกันการกดคีย์ลัด Ctrl + P / Cmd + P จากคีย์บอร์ดสำหรับผู้ที่ยังไม่ได้ล็อกอิน Admin
+      // บล็อกการกดคีย์ลัด Ctrl + P / Cmd + P สำหรับผู้ที่ยังไม่ได้ล็อกอิน Admin
       React.useEffect(() => {
         const handleKeyDown = (e) => {
           if ((e.ctrlKey || e.metaKey) && (e.key === 'p' || e.key === 'P')) {
@@ -453,7 +455,12 @@
         };
       }, [members]);
 
-      const exportCSV = () => {
+      const executeExportCSVAction = () => {
+        if (!isAdmin) {
+          executeAdminProtected(executeExportCSVAction);
+          return;
+        }
+
         if (filtered.length === 0) return showToast("ไม่มีข้อมูลให้ส่งออก", "warning");
         const headers = ["ลำดับ", "ชื่อ-นามสกุล", "ชื่อกิจการ", "ประเภท", "อำเภอ", "เบอร์โทร", "LINE ID", "สถานะ", "เป็นสมาชิกล่าสุดปี (พ.ศ.)", "การชำระเงิน", "TCC Connect", "ป้ายของดี", "Google Maps"];
         const rows = filtered.map((m, i) => [
@@ -467,6 +474,18 @@
         link.download = `สมาชิกหอการค้ากาฬสินธุ์_${new Date().toISOString().slice(0,10)}.csv`;
         link.click();
         showToast("ส่งออกไฟล์ CSV เรียบร้อยแล้ว");
+      };
+
+      const handleOpenPrintReport = (targetId = 'ALL') => {
+        if (!isAdmin) {
+          executeAdminProtected(() => {
+            setPrintTargetId(targetId);
+            setIsPrintModalOpen(true);
+          });
+          return;
+        }
+        setPrintTargetId(targetId);
+        setIsPrintModalOpen(true);
       };
 
       return (
@@ -510,40 +529,56 @@
 
                 <div className="flex items-center gap-2 flex-wrap justify-end w-full md:w-auto">
                   {isAdmin ? (
-                    <div className="bg-emerald-900/90 border border-emerald-400 text-emerald-200 text-xs px-2.5 py-1.5 rounded-lg flex items-center gap-2 font-semibold">
-                      <span>🔑 โหมด Admin</span>
-                      <button onClick={() => { setOldPass(''); setNewPass(''); setConfirmPass(''); setPassChangeError(''); setIsChangePassModalOpen(true); }} className="bg-amber-400 hover:bg-amber-300 text-blue-950 px-2 py-0.5 rounded text-[10px] font-bold">
-                        ⚙️ ตั้งรหัสใหม่
-                      </button>
-                      <button onClick={() => { setIsAdmin(false); showToast("ออกจากโหมด Admin", "warning"); }} className="bg-emerald-700 hover:bg-emerald-600 text-white px-1.5 py-0.5 rounded text-[10px]">
-                        ออก
-                      </button>
-                    </div>
-                  ) : (
-                    <button onClick={() => executeAdminProtected(() => {})} className="bg-blue-900 hover:bg-blue-800 text-blue-200 text-xs px-3 py-2 rounded-lg border border-blue-700 flex items-center gap-1.5">
-                      🔒 เข้าสู่ระบบ Admin
-                    </button>
-                  )}
+                    <>
+                      <div className="bg-emerald-900/90 border border-emerald-400 text-emerald-200 text-xs px-2.5 py-1.5 rounded-lg flex items-center gap-2 font-semibold">
+                        <span>🔑 โหมด Admin</span>
+                        <button onClick={() => { setOldPass(''); setNewPass(''); setConfirmPass(''); setPassChangeError(''); setIsChangePassModalOpen(true); }} className="bg-amber-400 hover:bg-amber-300 text-blue-950 px-2 py-0.5 rounded text-[10px] font-bold">
+                          ⚙️ ตั้งรหัสใหม่
+                        </button>
+                        <button onClick={() => { setIsAdmin(false); showToast("ออกจากโหมด Admin", "warning"); }} className="bg-emerald-700 hover:bg-emerald-600 text-white px-1.5 py-0.5 rounded text-[10px]">
+                          ออก
+                        </button>
+                      </div>
 
-                  <button onClick={() => executeAdminProtected(() => { setEditingMember(null); setFormData(emptyForm); setIsFormOpen(true); })} className="bg-amber-500 hover:bg-amber-400 text-blue-950 font-bold px-3.5 py-2 rounded-lg text-xs shadow">
-                    + เพิ่มสมาชิกใหม่
-                  </button>
-                  <button 
-                    onClick={() => executeAdminProtected(exportCSV)} 
-                    className="bg-blue-800 hover:bg-blue-700 text-white px-3 py-2 rounded-lg text-xs border border-blue-600 flex items-center gap-1.5"
-                    title={isAdmin ? "ส่งออกไฟล์ Excel/CSV" : "เฉพาะ Admin เท่านั้น (คลิกเพื่อปลดล็อก)"}
-                  >
-                    {!isAdmin && <span className="text-[11px]">🔒</span>}
-                    <span>📥 CSV (Excel)</span>
-                  </button>
-                  <button 
-                    onClick={() => executeAdminProtected(() => setIsPrintModalOpen(true))} 
-                    className="bg-blue-800 hover:bg-blue-700 text-white px-3 py-2 rounded-lg text-xs border border-blue-600 flex items-center gap-1.5"
-                    title={isAdmin ? "พิมพ์รายงาน / บันทึก PDF" : "เฉพาะ Admin เท่านั้น (คลิกเพื่อปลดล็อก)"}
-                  >
-                    {!isAdmin && <span className="text-[11px]">🔒</span>}
-                    <span>🖨️ พิมพ์ / PDF</span>
-                  </button>
+                      <button onClick={() => { setEditingMember(null); setFormData(emptyForm); setIsFormOpen(true); }} className="bg-amber-500 hover:bg-amber-400 text-blue-950 font-bold px-3.5 py-2 rounded-lg text-xs shadow">
+                        + เพิ่มสมาชิกใหม่
+                      </button>
+                      <button 
+                        onClick={executeExportCSVAction} 
+                        className="bg-blue-800 hover:bg-blue-700 text-white px-3 py-2 rounded-lg text-xs border border-blue-600 flex items-center gap-1.5 shadow"
+                        title="ส่งออกไฟล์ Excel/CSV"
+                      >
+                        <span>📥 CSV (Excel)</span>
+                      </button>
+                      <button 
+                        onClick={() => handleOpenPrintReport('ALL')} 
+                        className="bg-blue-800 hover:bg-blue-700 text-white px-3 py-2 rounded-lg text-xs border border-blue-600 flex items-center gap-1.5 shadow"
+                        title="พิมพ์รายงาน / บันทึก PDF"
+                      >
+                        <span>🖨️ พิมพ์ / PDF</span>
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button onClick={() => executeAdminProtected(() => {})} className="bg-amber-500 hover:bg-amber-400 text-blue-950 font-bold text-xs px-3 py-2 rounded-lg shadow flex items-center gap-1.5">
+                        🔒 เข้าสู่ระบบ Admin
+                      </button>
+                      <button 
+                        onClick={() => executeAdminProtected(executeExportCSVAction)} 
+                        className="bg-blue-900/80 hover:bg-blue-800 text-blue-200 hover:text-white px-3 py-2 rounded-lg text-xs border border-blue-700 flex items-center gap-1.5 opacity-80 hover:opacity-100"
+                        title="เฉพาะ Admin เท่านั้น (คลิกเพื่อใส่รหัสเข้าใช้งาน)"
+                      >
+                        <span>🔒 📥 CSV (Excel)</span>
+                      </button>
+                      <button 
+                        onClick={() => handleOpenPrintReport('ALL')} 
+                        className="bg-blue-900/80 hover:bg-blue-800 text-blue-200 hover:text-white px-3 py-2 rounded-lg text-xs border border-blue-700 flex items-center gap-1.5 opacity-80 hover:opacity-100"
+                        title="เฉพาะ Admin เท่านั้น (คลิกเพื่อใส่รหัสเข้าใช้งาน)"
+                      >
+                        <span>🔒 🖨️ พิมพ์ / PDF</span>
+                      </button>
+                    </>
+                  )}
                 </div>
 
               </div>
@@ -560,6 +595,7 @@
             </div>
           </header>
 
+          {}
           <main className="max-w-7xl mx-auto px-4 py-6 flex-1 w-full">
             {loading ? (
               <div className="text-center py-20 text-slate-500 font-medium">กำลังโหลดข้อมูลจาก Cloud Firebase...</div>
@@ -688,6 +724,7 @@
             )}
           </main>
 
+          {}
           {isFormOpen && (
             <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
               <div className="bg-white rounded-2xl max-w-xl w-full max-h-[90vh] flex flex-col overflow-hidden shadow-2xl border border-slate-200">
@@ -743,7 +780,7 @@
                     <input type="url" placeholder="https://maps.google.com/?q=..." value={formData.googleMapUrl} onChange={e => setFormData({ ...formData, googleMapUrl: e.target.value })} className="w-full p-2 border rounded font-mono text-[11px]" />
                   </div>
 
-                  {/* Status & Fully Customizable Latest Year Selection */}
+                  {/* Status & Latest Year */}
                   <div className={`p-3 rounded-lg space-y-3 transition-colors ${formData.status === 'ไม่ต่อสมาชิก' ? 'bg-amber-50 border-2 border-amber-400' : 'bg-slate-50 border'}`}>
                     <div className="grid grid-cols-2 gap-3">
                       <div>
@@ -843,6 +880,7 @@
             </div>
           )}
 
+          {}
           {viewingMember && (
             <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
               <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden shadow-2xl">
@@ -904,10 +942,10 @@
                         ? 'bg-blue-950 hover:bg-blue-900 text-white' 
                         : 'bg-slate-200 hover:bg-slate-300 text-slate-700 border border-slate-300'
                     }`}
-                    title={isAdmin ? "พิมพ์เอกสารบุคคลนี้ / PDF" : "คลิกเพื่อใส่รหัส Admin สำหรับพิมพ์เอกสาร"}
+                    title={isAdmin ? "พิมพ์เอกสารบุคคลนี้ / PDF" : "ต้องใช้สิทธิ์ Admin ก่อนสั่งพิมพ์"}
                   >
                     {!isAdmin && <span>🔒</span>}
-                    <span>🖨️ พิมพ์เอกสารบุคคลนี้ / PDF {!isAdmin && '(ต้องใช้สิทธิ์ Admin)'}</span>
+                    <span>🖨️ พิมพ์เอกสารบุคคลนี้ / PDF {!isAdmin && '(เฉพาะ Admin)'}</span>
                   </button>
                   <button onClick={() => setViewingMember(null)} className="px-5 py-1.5 bg-slate-800 hover:bg-slate-900 text-white rounded text-xs font-bold">ปิดหน้าต่าง</button>
                 </div>
@@ -915,6 +953,7 @@
             </div>
           )}
 
+          {}
           {quickYearTarget && (
             <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4">
               <div className="bg-white rounded-2xl max-w-sm w-full p-5 shadow-2xl border space-y-3">
@@ -967,12 +1006,12 @@
               <div className="bg-white rounded-2xl max-w-xs w-full p-5 shadow-2xl border text-center space-y-3">
                 <div className="text-2xl">🔐</div>
                 <h4 className="font-bold text-sm text-blue-950">ยืนยันสิทธิ์ Admin</h4>
-                <p className="text-xs text-slate-500">กรุณากรอกรหัสผ่านเพื่อจัดการข้อมูลสมาชิกหรือพิมพ์รายงาน</p>
+                <p className="text-xs text-slate-500">กรุณากรอกรหัสผ่านเพื่อส่งออกข้อมูล สั่งพิมพ์ หรือจัดการสมาชิก</p>
                 <form onSubmit={handleAdminLogin} className="space-y-3">
                   <input type="password" autoFocus placeholder="รหัสผ่าน (เริ่มต้น: 1234)" value={adminPasscode} onChange={e => setAdminPasscode(e.target.value)} className="w-full p-2 border rounded text-center text-sm font-bold tracking-widest" />
                   {adminError && <p className="text-rose-600 text-xs">{adminError}</p>}
                   <div className="flex gap-2">
-                    <button type="button" onClick={() => setIsAdminModalOpen(false)} className="flex-1 py-1.5 border rounded text-xs">ยกเลิก</button>
+                    <button type="button" onClick={() => { setIsAdminModalOpen(false); setPendingAction(null); }} className="flex-1 py-1.5 border rounded text-xs">ยกเลิก</button>
                     <button type="submit" className="flex-1 py-1.5 bg-blue-950 text-white font-bold rounded text-xs">เข้าสู่ระบบ</button>
                   </div>
                 </form>
@@ -1027,6 +1066,7 @@
             </div>
           )}
 
+          {}
           {isPrintModalOpen && (
             <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4">
               <div className="bg-white rounded-2xl max-w-5xl w-full max-h-[95vh] flex flex-col overflow-hidden shadow-2xl">
@@ -1062,7 +1102,18 @@
                     </div>
                   </div>
                   <div className="flex gap-2">
-                    <button onClick={() => window.print()} className="bg-blue-950 text-white px-4 py-1.5 rounded text-xs font-bold hover:bg-blue-900 shadow">🖨️ สั่งพิมพ์ / บันทึก PDF</button>
+                    <button 
+                      onClick={() => {
+                        if (!isAdmin) {
+                          showToast("ต้องยืนยันสิทธิ์ Admin ก่อนสั่งพิมพ์", "error");
+                          return;
+                        }
+                        window.print();
+                      }} 
+                      className="bg-blue-950 text-white px-4 py-1.5 rounded text-xs font-bold hover:bg-blue-900 shadow"
+                    >
+                      🖨️ สั่งพิมพ์ / บันทึก PDF
+                    </button>
                     <button onClick={() => setIsPrintModalOpen(false)} className="px-3 py-1.5 border rounded text-xs hover:bg-slate-200">ปิด</button>
                   </div>
                 </div>
