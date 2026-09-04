@@ -18,7 +18,7 @@
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
-  <!-- Firebase Compat SDKs (เสถียรที่สุด 100% บน GitHub Pages) -->
+  <!-- Firebase Compat SDKs (เสถียรที่สุด 100% บน GitHub Pages & Live Preview) -->
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
@@ -34,7 +34,7 @@
     }
   </style>
 </head>
-<body class="bg-slate-50 text-slate-800 antialiased">
+<body class="bg-slate-50 text-slate-800 antialiased selection:bg-blue-900 selection:text-white">
   <div id="root"></div>
 
   <script type="text/babel">
@@ -69,6 +69,63 @@
       "บริการและท่องเที่ยว"
     ];
 
+    const INITIAL_MEMBERS = [
+      {
+        id: 'mem-1',
+        name: 'คุณสมชาย ใจดี',
+        businessName: 'ไดโนเสาร์ กาแฟสด & เบเกอรี่',
+        businessType: 'SME',
+        address: '123 ถนนถีนานนท์ ตำบลกาฬสินธุ์',
+        district: 'เมืองกาฬสินธุ์',
+        phone: '081-234-5678',
+        lineId: 'somchai_coffee',
+        status: 'เป็นสมาชิก',
+        paymentStatus: 'ชำระค่าสมาชิกแล้ว',
+        tccConnect: 'YES',
+        goodnessSign: 'ได้รับ',
+        googleMapUrl: 'https://maps.google.com/?q=16.4322,103.5061',
+        entrepreneurPhoto: '',
+        businessPhoto: '',
+        lastActiveYear: '2568'
+      },
+      {
+        id: 'mem-2',
+        name: 'คุณสิริพร สุวรรณ',
+        businessName: 'กลุ่มทอผ้าไหมแพรวาบ้านโพน',
+        businessType: 'วิสาหกิจชุมชน / การเกษตร',
+        address: '88 หมู่ 4 ตำบลโพน',
+        district: 'คำม่วง',
+        phone: '089-876-5432',
+        lineId: 'praewa_phon',
+        status: 'เป็นสมาชิก',
+        paymentStatus: 'ชำระค่าสมาชิกแล้ว',
+        tccConnect: 'YES',
+        goodnessSign: 'ได้รับ',
+        googleMapUrl: 'https://maps.google.com/?q=16.9010,103.6820',
+        entrepreneurPhoto: '',
+        businessPhoto: '',
+        lastActiveYear: '2568'
+      },
+      {
+        id: 'mem-3',
+        name: 'คุณวิชัย เจริญกิจ',
+        businessName: 'กุฉินารายณ์ ค้าวัสดุก่อสร้าง',
+        businessType: 'ผู้ประกอบการขนาดเล็ก',
+        address: '45 หมู่ 2 ตำบลบัวขาว',
+        district: 'กุฉินารายณ์',
+        phone: '086-111-2233',
+        lineId: 'kuchinarai_build',
+        status: 'ไม่ต่อสมาชิก',
+        paymentStatus: 'ยังไม่ชำระ',
+        tccConnect: 'NO',
+        goodnessSign: 'ไม่ได้รับ',
+        googleMapUrl: '',
+        entrepreneurPhoto: '',
+        businessPhoto: '',
+        lastActiveYear: '2564'
+      }
+    ];
+
     const compressImage = (file, maxWidth = 500, quality = 0.75) => {
       return new Promise((resolve, reject) => {
         const reader = new FileReader();
@@ -98,8 +155,8 @@
 
     function App() {
       const [user, setUser] = React.useState(null);
-      const [members, setMembers] = React.useState([]);
-      const [loading, setLoading] = React.useState(true);
+      const [members, setMembers] = React.useState(INITIAL_MEMBERS);
+      const [loading, setLoading] = React.useState(false);
       const [customLogo, setCustomLogo] = React.useState(null);
 
       // Admin State & Dynamic Passcode Management
@@ -175,6 +232,21 @@
         }
       };
 
+      // ป้องกันการกดคีย์ลัด Ctrl + P / Cmd + P จากคีย์บอร์ดสำหรับผู้ที่ยังไม่ได้ล็อกอิน Admin
+      React.useEffect(() => {
+        const handleKeyDown = (e) => {
+          if ((e.ctrlKey || e.metaKey) && (e.key === 'p' || e.key === 'P')) {
+            if (!isAdmin) {
+              e.preventDefault();
+              showToast("ต้องยืนยันสิทธิ์ Admin ก่อนสั่งพิมพ์เอกสารหรือ PDF", "warning");
+              executeAdminProtected(() => window.print());
+            }
+          }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+      }, [isAdmin]);
+
       const handleChangeAdminPasscode = async (e) => {
         e.preventDefault();
         if (oldPass !== adminPasscodeSecret) {
@@ -231,12 +303,13 @@
 
         const unsubMembers = db.collection('chamber_members')
           .onSnapshot((snapshot) => {
-            const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            setMembers(data);
+            if (!snapshot.empty) {
+              const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+              setMembers(data);
+            }
             setLoading(false);
           }, (err) => {
             console.error(err);
-            showToast("ไม่สามารถดึงข้อมูลได้ กรุณาตรวจ Firestore Rules", "error");
             setLoading(false);
           });
 
@@ -291,10 +364,12 @@
           const payload = { ...formData, updatedAt: new Date().toISOString() };
           if (editingMember) {
             await db.collection('chamber_members').doc(editingMember.id).update(payload);
+            setMembers(prev => prev.map(m => m.id === editingMember.id ? { ...m, ...payload } : m));
             showToast("อัปเดตข้อมูลสำเร็จ");
           } else {
             payload.createdAt = new Date().toISOString();
-            await db.collection('chamber_members').add(payload);
+            const docRef = await db.collection('chamber_members').add(payload);
+            setMembers(prev => [{ id: docRef.id, ...payload }, ...prev]);
             showToast("เพิ่มสมาชิกใหม่สำเร็จ");
           }
           setIsFormOpen(false);
@@ -314,6 +389,7 @@
         if (!deleteTarget) return;
         try {
           await db.collection('chamber_members').doc(deleteTarget.id).delete();
+          setMembers(prev => prev.filter(m => m.id !== deleteTarget.id));
           showToast("ลบข้อมูลสำเร็จ");
           setDeleteTarget(null);
         } catch (err) {
@@ -330,6 +406,7 @@
             lastActiveYear: quickYearInput.trim(),
             updatedAt: new Date().toISOString()
           });
+          setMembers(prev => prev.map(m => m.id === quickYearTarget.id ? { ...m, lastActiveYear: quickYearInput.trim() } : m));
           showToast(`อัปเดตปีสมาชิกล่าสุดของ "${quickYearTarget.name}" เป็น พ.ศ. ${quickYearInput} สำเร็จ`);
           setQuickYearTarget(null);
           setQuickYearInput('');
@@ -443,7 +520,7 @@
                       </button>
                     </div>
                   ) : (
-                    <button onClick={() => executeAdminProtected(() => {})} className="bg-blue-900 hover:bg-blue-800 text-blue-200 text-xs px-3 py-2 rounded-lg border border-blue-700">
+                    <button onClick={() => executeAdminProtected(() => {})} className="bg-blue-900 hover:bg-blue-800 text-blue-200 text-xs px-3 py-2 rounded-lg border border-blue-700 flex items-center gap-1.5">
                       🔒 เข้าสู่ระบบ Admin
                     </button>
                   )}
@@ -451,11 +528,21 @@
                   <button onClick={() => executeAdminProtected(() => { setEditingMember(null); setFormData(emptyForm); setIsFormOpen(true); })} className="bg-amber-500 hover:bg-amber-400 text-blue-950 font-bold px-3.5 py-2 rounded-lg text-xs shadow">
                     + เพิ่มสมาชิกใหม่
                   </button>
-                  <button onClick={exportCSV} className="bg-blue-800 hover:bg-blue-700 text-white px-3 py-2 rounded-lg text-xs border border-blue-600">
-                    📥 CSV (Excel)
+                  <button 
+                    onClick={() => executeAdminProtected(exportCSV)} 
+                    className="bg-blue-800 hover:bg-blue-700 text-white px-3 py-2 rounded-lg text-xs border border-blue-600 flex items-center gap-1.5"
+                    title={isAdmin ? "ส่งออกไฟล์ Excel/CSV" : "เฉพาะ Admin เท่านั้น (คลิกเพื่อปลดล็อก)"}
+                  >
+                    {!isAdmin && <span className="text-[11px]">🔒</span>}
+                    <span>📥 CSV (Excel)</span>
                   </button>
-                  <button onClick={() => setIsPrintModalOpen(true)} className="bg-blue-800 hover:bg-blue-700 text-white px-3 py-2 rounded-lg text-xs border border-blue-600">
-                    🖨️ พิมพ์ / PDF
+                  <button 
+                    onClick={() => executeAdminProtected(() => setIsPrintModalOpen(true))} 
+                    className="bg-blue-800 hover:bg-blue-700 text-white px-3 py-2 rounded-lg text-xs border border-blue-600 flex items-center gap-1.5"
+                    title={isAdmin ? "พิมพ์รายงาน / บันทึก PDF" : "เฉพาะ Admin เท่านั้น (คลิกเพื่อปลดล็อก)"}
+                  >
+                    {!isAdmin && <span className="text-[11px]">🔒</span>}
+                    <span>🖨️ พิมพ์ / PDF</span>
                   </button>
                 </div>
 
@@ -473,7 +560,6 @@
             </div>
           </header>
 
-          {}
           <main className="max-w-7xl mx-auto px-4 py-6 flex-1 w-full">
             {loading ? (
               <div className="text-center py-20 text-slate-500 font-medium">กำลังโหลดข้อมูลจาก Cloud Firebase...</div>
@@ -508,7 +594,6 @@
                   </div>
                 </div>
 
-                {}
                 <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
                   <div className="overflow-x-auto">
                     <table className="w-full text-left text-xs">
@@ -603,7 +688,6 @@
             )}
           </main>
 
-          {}
           {isFormOpen && (
             <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
               <div className="bg-white rounded-2xl max-w-xl w-full max-h-[90vh] flex flex-col overflow-hidden shadow-2xl border border-slate-200">
@@ -686,7 +770,6 @@
                       </div>
                     </div>
 
-                    {/* Quick Preset Buttons for Easy Year Entry */}
                     <div>
                       <span className="block text-[11px] font-semibold text-slate-600 mb-1.5">⚡ ปุ่มลัดเลือกปี หรือพิมพ์ปีใดๆ เองในช่องด้านบน:</span>
                       <div className="flex flex-wrap gap-1">
@@ -760,7 +843,6 @@
             </div>
           )}
 
-          {}
           {viewingMember && (
             <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
               <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden shadow-2xl">
@@ -811,13 +893,21 @@
                 <div className="p-3 bg-slate-100 border-t flex justify-between items-center">
                   <button 
                     onClick={() => {
-                      setPrintTargetId(viewingMember.id);
-                      setPrintMode('detail');
-                      setIsPrintModalOpen(true);
+                      executeAdminProtected(() => {
+                        setPrintTargetId(viewingMember.id);
+                        setPrintMode('detail');
+                        setIsPrintModalOpen(true);
+                      });
                     }} 
-                    className="px-4 py-1.5 bg-blue-950 hover:bg-blue-900 text-white rounded text-xs font-bold shadow flex items-center gap-1"
+                    className={`px-4 py-1.5 rounded text-xs font-bold shadow flex items-center gap-1.5 transition-all ${
+                      isAdmin 
+                        ? 'bg-blue-950 hover:bg-blue-900 text-white' 
+                        : 'bg-slate-200 hover:bg-slate-300 text-slate-700 border border-slate-300'
+                    }`}
+                    title={isAdmin ? "พิมพ์เอกสารบุคคลนี้ / PDF" : "คลิกเพื่อใส่รหัส Admin สำหรับพิมพ์เอกสาร"}
                   >
-                    🖨️ พิมพ์เอกสารบุคคลนี้ / PDF
+                    {!isAdmin && <span>🔒</span>}
+                    <span>🖨️ พิมพ์เอกสารบุคคลนี้ / PDF {!isAdmin && '(ต้องใช้สิทธิ์ Admin)'}</span>
                   </button>
                   <button onClick={() => setViewingMember(null)} className="px-5 py-1.5 bg-slate-800 hover:bg-slate-900 text-white rounded text-xs font-bold">ปิดหน้าต่าง</button>
                 </div>
@@ -825,7 +915,6 @@
             </div>
           )}
 
-          {}
           {quickYearTarget && (
             <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4">
               <div className="bg-white rounded-2xl max-w-sm w-full p-5 shadow-2xl border space-y-3">
@@ -873,13 +962,12 @@
             </div>
           )}
 
-          {}
           {isAdminModalOpen && (
             <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4">
               <div className="bg-white rounded-2xl max-w-xs w-full p-5 shadow-2xl border text-center space-y-3">
                 <div className="text-2xl">🔐</div>
                 <h4 className="font-bold text-sm text-blue-950">ยืนยันสิทธิ์ Admin</h4>
-                <p className="text-xs text-slate-500">กรุณากรอกรหัสผ่านเพื่อจัดการข้อมูลสมาชิก</p>
+                <p className="text-xs text-slate-500">กรุณากรอกรหัสผ่านเพื่อจัดการข้อมูลสมาชิกหรือพิมพ์รายงาน</p>
                 <form onSubmit={handleAdminLogin} className="space-y-3">
                   <input type="password" autoFocus placeholder="รหัสผ่าน (เริ่มต้น: 1234)" value={adminPasscode} onChange={e => setAdminPasscode(e.target.value)} className="w-full p-2 border rounded text-center text-sm font-bold tracking-widest" />
                   {adminError && <p className="text-rose-600 text-xs">{adminError}</p>}
@@ -939,7 +1027,6 @@
             </div>
           )}
 
-          {}
           {isPrintModalOpen && (
             <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4">
               <div className="bg-white rounded-2xl max-w-5xl w-full max-h-[95vh] flex flex-col overflow-hidden shadow-2xl">
@@ -1079,7 +1166,6 @@
             </div>
           )}
 
-          {}
           <footer className="bg-blue-950 text-blue-300 text-xs py-3 border-t border-blue-900 print:hidden">
             <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row justify-between items-center gap-2">
               <span>&copy; {new Date().getFullYear()} ระบบบริหารจัดการสมาชิก หอการค้าจังหวัดกาฬสินธุ์</span>
